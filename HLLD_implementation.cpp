@@ -3,6 +3,7 @@
 #include <cmath>
 
 const double GAMMA_EOS = 5.0f / 3.0f;
+const double SPEED_OF_LIGHT = 299 792 458.0f;
 
 struct conserved_variables
 {
@@ -24,24 +25,27 @@ int main()
 	// our starting values for the left and right states
 	double rho_left;
 	std::vector<double> v_left;
-	double epsilon_left;
 	std::vector<double> B_left;
-	double Y_e_left;
-	double T_left;
+	double p_g_left;
 
 	double rho_right;
 	std::vector<double> v_right;
-	double epsilon_right;
 	std::vector<double> B_right;
-	double Y_e_right;
-	double T_right;
+	double p_g_right;
+
+	// This should be replaced with the actual values for the left and right states, for now we will just use some placeholder values
+	conserved_variables P_left = calculate_P(rho_left, v_left, B_left, p_g_left);
+	conserved_variables P_right = calculate_P(rho_right, v_right, B_right, p_g_right);
+
+	// Here we call the HLLD solver with the left and right states and get the result
+	std::vector<double> result = HLLD_solver(P_left, P_right);
 
 	return 0;
 }
 
 double calculate_gamma_factor(double v_x, double v_y, double v_z)
 {
-	double gamma_factor = 1.0 / sqrt(1 - (v_x * v_x + v_y * v_y + v_z * v_z));
+	double gamma_factor = 1.0 / sqrt(1 - (v_x * v_x + v_y * v_y + v_z * v_z) / (SPEED_OF_LIGHT * SPEED_OF_LIGHT)); // gamma = 1 / sqrt(1 - v^2 / c^2)
 	return gamma_factor;
 }
 
@@ -145,20 +149,24 @@ double calculate_lamda_left()
 	return -0.99 * 3e8f;
 }
 
-// 100% not correct, will fix it later on, just wanted to get something down for now
-std::vector<double> calculate_v(std::vector<double> R, conserved_variables P, double lamda)
+
+// R_D = R_0
+// R_mk = R_123
+// R_E = R_4
+// R_bk = R_5, R_6, R_7
+std::vector<double> calculate_v(std::vector<double> R, conserved_variables P, double lamda, double p_guess)
 {
 	std::vector<double> v(3);
 
-	double A{R[0] - lamda * R[4] + P.w * (1 - lamda * lamda)};
+	double A{R[1] - lamda * R[4] + p_guess * (1 - lamda * lamda)};
 	double G{R[6] * R[6] + R[7] * R[7]};
 	double C{R[2] * R[6] + R[3] * R[7]};
-	double Q = {-A - G + P.v_x * P.v_x * (1 - lamda * lamda)};
-	double X = {P.v_x * (A * lamda * P.v_x + C) - (A + G) * (lamda * P.p + R[4])};
+	double Q = {-A - G + P.B_x * P.B_x * (1 - lamda * lamda)};
+	double X = {P.B_x * (A * lamda * P.B_x + C) - (A + G) * (lamda * p_guess + R[4])};
 
-	v[0] = (P.v_x * (A * P.v_x + C * lamda) - (A + G) * (P.p + R[2])) / X;
-	v[1] = (Q * R[2] + R[6] * (C + P.w * (lamda * R[2] - R[4]))) / X;
-	v[2] = (Q * R[3] + R[7] * (C + P.w * (lamda * R[1] - R[4]))) / X;
+	v[0] = (P.B_x * (A * P.B_x + C * lamda) - (A + G) * (p_guess + R[1])) / X;
+	v[1] = (Q * R[2] + R[6] * (C + P.B_x* (lamda * R[1] - R[4]))) / X;
+	v[2] = (Q * R[3] + R[7] * (C + P.B_x * (lamda * R[1] - R[4]))) / X;
 
 	return v;
 }
@@ -167,17 +175,16 @@ std::vector<double> calculate_B(std::vector<double> R, conserved_variables P, do
 {
 	std::vector<double> B(3);
 
-	for (int i = 0; i < 3; i++)
-	{
-		B[i] = (R[5 + i] - P.B_x * P.v_x) / (lamda - P.v_x); // B = R_bk - B_x * v_k / (lamda - v_x)
-	}
+	B[0] = P.B_x; // B_x is constant across the discontinuity
+	B[1] = (R[6] - P.B_x * P.v_y) / (lamda - P.v_x); // B_y = R_b2 - B_x * v_y / (lamda - v_x)
+	B[2] = (R[7] - P.B_x * P.v_z) / (lamda - P.v_x); // B_z = R_b3 - B_x * v_z / (lamda - v_x)
 
 	return B;
 }
 
-double calculate_w(std::vector<double> R, conserved_variables P, double lamda)
+double calculate_w(std::vector<double> R, conserved_variables P, double lamda, double p_guess)
 {
-	double w = P.w + R[4] - (P.v_x * R[1] + P.v_y * R[2] + P.v_z * R[3]) / (lamda - P.v_x); // w = w + R_4 - (v_x * R_1 + v_y * R_2 + v_z * R_3) / (lamda - v_x)
+	double w = p_guess + (R[4] - (P.v_x * R[1] + P.v_y * R[2] + P.v_z * R[3])) / (lamda - P.v_x); // w = w + R_4 - (v_x * R_1 + v_y * R_2 + v_z * R_3) / (lamda - v_x)
 	return w;
 }
 
@@ -212,18 +219,35 @@ double calculate_p_hll(conserved_variables P_left, conserved_variables P_right)
 	return (p1 + p2) / 2; // This is a very simple approximation for the HLL pressure, we will replace this with the actual calculation later on
 }
 
+double calculate_Y_R(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c)
+{
+	double Y_R;
+	// This is a placeholder for the actual calculation of Ys, we will replace this with the actual calculation later on
+	Y_R = 0;
+	return Y_R;
+}
+
+double calculate_Y_L(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c)
+{
+	double Y_L;
+	// This is a placeholder for the actual calculation of Ys, we will replace this with the actual calculation later on
+	Y_L = 0;
+	return Y_L;
+}
+
+
 double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
-						std::vector<double> R_left, std::vector<double> R_right, double lamda_left, double lamda_right)
+						std::vector<double> R_left, std::vector<double> R_right, double lamda_left, double lamda_right, double p_guess)
 {
 
-	std::vector<double> v_left = calculate_v(R_left, P_left, lamda_left);	  // temp function to calculate v, we will replace this with the actual calculation later on
-	std::vector<double> v_right = calculate_v(R_right, P_right, lamda_right); // temp function to calculate v, we will replace this with the actual calculation later on
+	std::vector<double> v_left = calculate_v(R_left, P_left, lamda_left, p_guess);	  
+	std::vector<double> v_right = calculate_v(R_right, P_right, lamda_right, p_guess); 
 
-	std::vector<double> B_left = calculate_B(R_left, P_left, lamda_left);
+	std::vector<double> B_left = calculate_B(R_left, P_left, lamda_left);	  
 	std::vector<double> B_right = calculate_B(R_right, P_right, lamda_right);
 
-	double w_left = calculate_w(R_left, P_left, lamda_left);
-	double w_right = calculate_w(R_right, P_right, lamda_right);
+	double w_left = calculate_w(R_left, P_left, lamda_left, p_guess);	  
+	double w_right = calculate_w(R_right, P_right, lamda_right, p_guess);
 
 	// step 3: Calculate K and the B_c field in the intermediate state
 	std::vector<double> K_left = calculate_K(R_left, P_left, lamda_left);
@@ -231,23 +255,14 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 
 	std::vector<double> B_c = calculate_B_c(R_left, P_left, lamda_left);
 
-	auto [Y_left, Y_right] = calculate_both_Ys(K_left, K_right, B_c);
+	double Y_left = calculate_Y_L(K_left, K_right, B_c);
+	double Y_right = calculate_Y_R(K_left, K_right, B_c);
 
 	double delta_K_x = K_right[0] - K_left[0];
 	double f_of_p = (delta_K_x * (1 - P_left.B_x * (Y_right - Y_left))); // This is a placeholder for the actual calculation of f(p), we will replace this with the actual calculation later on
 	return f_of_p;
 }
 
-#include <utility> // Add this at the top if not already present
-
-std::pair<double, double> calculate_both_Ys(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c)
-{
-	double Y_R, Y_L;
-	// This is a placeholder for the actual calculation of Ys, we will replace this with the actual calculation later on
-	Y_R = 0;
-	Y_L = 0;
-	return {Y_L, Y_R};
-}
 std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables P_right)
 {
 
@@ -266,18 +281,17 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right); // temp lamda for now, we will replace this with the actual calculation later on
 
 	double p_old, p_new = calculate_p_hll(P_left, P_right);
-	double f_of_p_old = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right);
+	double f_of_p_old = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_old);
 
-	while (p_old - p_new > 1e-6) // This is a simple convergence criterion, we will replace this with the actual convergence criterion later on
-	{ 
+	// This is a simple convergence criterion, we will replace this with the actual convergence criterion later on
+	while (p_old - p_new > 1e-6) {
+		
 		// Here we use the secant method with f(p) and update p till our convergence criterion meets
-		double f_of_p_new = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right);
+		double f_of_p_new = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_new);
 		p_new += f_of_p_new * (p_new - p_old) / (f_of_p_new - f_of_p_old); // This is a placeholder for the actual update of p, we will replace this with the actual calculation later on
 		p_old = p_new;
 		f_of_p_old = f_of_p_new;
 	}
-
-	
 
 	std::vector<double> result;
 	return result;
