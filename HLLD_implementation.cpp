@@ -258,6 +258,21 @@ double calculate_Y_L(std::vector<double> K_left, std::vector<double> K_right, st
 	return Y_L;
 }
 
+conserved_variables calculate_final_P(double D, std::vector<double> v, std::vector<double> B, double w, double p_found)
+{
+	conserved_variables final_P;
+
+	final_P.D = D;
+	final_P.v_x = v[0];
+	final_P.v_y = v[1];
+	final_P.v_z = v[2];
+	final_P.B_x = B[0]; // this value should be const across the whole calculation
+	final_P.B_y = B[1];
+	final_P.B_z = B[2];
+	final_P.w = w;
+	final_P.p = p_found;
+	return final_P;
+}
 
 double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 						std::vector<double> R_left, std::vector<double> R_right, double lamda_left, double lamda_right, double p_guess)
@@ -289,6 +304,7 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 	double f_of_p = (delta_K_x * (1 - B_x * (Y_right - Y_left))); // This is a placeholder for the actual calculation of f(p), we will replace this with the actual calculation later on
 	return f_of_p;
 }
+
 
 std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables P_right)
 {
@@ -324,6 +340,73 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 
 		p_new = p_next;
 	}
-	std::vector<double> result;
-	return result;
+
+	double p_found = p_new; // This is the value of p that we found after convergence
+
+	// Now we calculate all the final values for the a left and a right and c state
+	std::vector<double> v_a_left = calculate_v(R_left, P_left, lamda_left, p_found);	  
+	std::vector<double> v_a_right = calculate_v(R_right, P_right, lamda_right, p_found); 
+
+	std::vector<double> B_a_left = calculate_B(R_left, P_left, v_a_left, lamda_left);	  
+	std::vector<double> B_a_right = calculate_B(R_right, P_right, v_a_right, lamda_right);
+
+	double w_a_left = calculate_w(R_left, P_left, v_a_left, lamda_left, p_found);	  
+	double w_a_right = calculate_w(R_right, P_right, v_a_right, lamda_right, p_found);
+
+	double eta_a_left = calculate_eta(P_left, w_a_left, -1); // eta is -1 for the left state
+	double eta_a_right = calculate_eta(P_right, w_a_right, 1); // eta is 1 for the right state
+
+	std::vector<double> K_a_left = calculate_K(R_left, B_a_left, lamda_left, p_found, eta_a_left); 
+	std::vector<double> K_a_right = calculate_K(R_right, B_a_right, lamda_right, p_found, eta_a_right);
+
+	// B_c_left = B_c_right = B_c, since B_c is constant across the discontinuity
+	std::vector<double> B_c = calculate_B_c(v_a_left, v_a_right, B_a_left, B_a_right, lamda_left, lamda_right, K_a_left[0], K_a_right[0]);
+
+	double Y_a_left = calculate_Y_L(K_a_left, K_a_right, B_c, eta_a_left); // eta is -1 for the left state
+	double Y_a_right = calculate_Y_R(K_a_left, K_a_right, B_c, eta_a_right); // eta is 1 for the right state
+
+	double lamda_c = 0; // This is a placeholder for the actual calculation of lamda_c, we will replace this with the actual calculation later on
+	double lamda_a_left = K_a_left[0];
+	double lamda_a_right = K_a_right[0];
+
+	std::vector<double> final_flux;
+	if (lamda_left > 0) {
+		final_flux = F_left; // flux_chooser = F_left
+		
+
+	} else if (lamda_left < 0 && lamda_a_left > 0) {
+		double D_a_left = R_left[0] / (lamda_left - v_a_left[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
+		final_flux = calculate_F(P_a_left); // F_left
+
+	} else if (lamda_a_left < 0 && lamda_c > 0) {
+		double D_a_left = R_left[0] / (lamda_left - v_a_left[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
+		std::vector<double> F_a_left = calculate_F(P_a_left); // F_left
+
+		std::vector<double> v_c_left = {0}; // v_c is a placeholder for the actual calculation of v_c, we will replace this with the actual calculation later on
+		double D_c_left = D_a_left * (lamda_a_left - v_a_left[0]) / (lamda_a_left - v_c_left[0]); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
+		double E_a_left = 0;
+		double m_a_x_left = 0;
+		double E_c_left = (lamda_a_left * E_a_left - m_a_x_left + p_found * v_c_left[0] - (v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2]) * B_a_left[0]) / (lamda_a_left - v_c_left[0]); // E_c = lamda_a * E_a - m_a_x + p * v_c
+		std::vector<double> m_c_left(3);
+		m_c_left = (E_c_left + p_found) * v_c_left;
+		final_flux = F_a_left * lamda_c * ()
+
+
+		// flux_chooser = F_al + lamda_c (U_cl - U_al)
+
+	} else if (lamda_c < 0 && lamda_a_right > 0) {
+		// flux_chooser = F_ar + lamda_c (U_cr - U_ar)
+
+	} else if (lamda_a_right < 0 && lamda_right > 0) {
+		double D_a_right = R_right[0] / (lamda_right - v_a_right[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		conserved_variables P_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found); 
+		final_flux = calculate_F(P_right); // F_right
+	} else if (lamda_right < 0) {
+		final_flux = F_right; // flux_chooser = F_right
+	}
+
+	
+	return final_flux;
 }
