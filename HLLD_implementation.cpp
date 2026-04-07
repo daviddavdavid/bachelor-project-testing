@@ -27,7 +27,6 @@ int main()
 	std::vector<double> v_left;
 	std::vector<double> B_left;
 	double p_g_left;
-
 	double rho_right;
 	std::vector<double> v_right;
 	std::vector<double> B_right;
@@ -38,7 +37,7 @@ int main()
 	conserved_variables P_right = calculate_P(rho_right, v_right, B_right, p_g_right);
 
 	// Here we call the HLLD solver with the left and right states and get the result
-	std::vector<double> result = HLLD_solver(P_left, P_right);
+	std::vector<double> result = HLLD_solver(P_left, P_right, p_g_left, p_g_right);
 
 	return 0;
 }
@@ -145,15 +144,72 @@ std::vector<double> calculate_R(std::vector<double> U, std::vector<double> F, do
 	return R;
 }
 
-// These are temporary functions to calculate the wave speeds, we will replace these with the actual calculations later on
-double calculate_lamda_right()
-{
-	return 0.99;
+double quartic_function(double lamda, conserved_variables P, double p_g)
+{	
+	double c_s_squared = GAMMA_EOS * p_g / (P.w + EPSILON); // c_s^2 = gamma_eos * p_g / w
+	double gamma = calculate_gamma_factor(P.v_x, P.v_y, P.v_z);
+	double a = gamma * (lamda - P.v_x);
+	double B_squared = P.B_x * P.B_x + P.B_y * P.B_y + P.B_z * P.B_z;
+	double v_dot_B = P.v_x * P.B_x + P.v_y * P.B_y + P.v_z * P.B_z;
+	double b_x = gamma * (B_squared / (gamma * gamma) + P.v_x * (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z));
+	double b_0 = gamma * v_dot_B;
+	double special_B_squared = (b_x - lamda * b_0) * (b_x - lamda * b_0);
+	double abs_b_squared = std::abs(P.B_x * P.B_x + P.B_y * P.B_y + P.B_z * P.B_z) / (gamma * gamma) +
+					   (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z) * (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z);
+
+	double F_of_lamda = P.w * (1- c_s_squared) * std::pow(a, 4.0) - (1- lamda * lamda) * ((abs_b_squared + P.w * c_s_squared) * a * a - c_s_squared) * special_B_squared;
+	return F_of_lamda;
 }
 
-double calculate_lamda_left()
-{
-	return -0.99;
+double bisection_loop_lamda(conserved_variables P, double left_lamda, double right_lamda, double p_g, double v_x) {
+	double error_margin = 1e-6;
+	double midpoint_lamda = (left_lamda + right_lamda) / 2.0;
+
+	while (std::abs(left_lamda - right_lamda) > error_margin)
+	{
+		double midpoint_lamda = (left_lamda + right_lamda) / 2.0;
+		double f_midpoint = quartic_function(midpoint_lamda, P, p_g);
+		double f_left = quartic_function(left_lamda, P, p_g);
+		
+		if (f_midpoint * f_left < 0) {
+			right_lamda = midpoint_lamda;
+		} else if (f_midpoint * f_left > 0) {
+			left_lamda = midpoint_lamda;
+		} else {
+			return midpoint_lamda; // Found an exact root
+		}
+
+	}
+	return midpoint_lamda;
+}
+// I decided to use the bisection method for now
+// In the future, I might replace this with a faster algorithm
+std::vector<double> calculate_lamdas(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right)
+{	
+	// For the left side of the boundary
+	double left_plus_lamda = P_left.v_x;
+	double right_plus_lamda = 1;
+
+	double left_plus_lamda_found = bisection_loop_lamda(P_left, left_plus_lamda, right_plus_lamda, p_g_left, P_left.v_x);
+
+	double left_minus_lamda = -1;
+	double right_minus_lamda = -P_left.v_x;
+	double left_minus_lamda_found = bisection_loop_lamda(P_left, left_minus_lamda, right_minus_lamda, p_g_left, P_left.v_x);
+
+	// For the right side of the boundary
+	double left_plus_lamda = P_right.v_x;
+	double right_plus_lamda = 1;
+
+	double left_plus_lamda_found = bisection_loop_lamda(P_right, left_plus_lamda, right_plus_lamda, p_g_right, P_right.v_x);
+
+	double left_minus_lamda = -1;
+	double right_minus_lamda = -P_right.v_x;
+	double left_minus_lamda_found = bisection_loop_lamda(P_right, left_minus_lamda, right_minus_lamda, p_g_right, P_right.v_x);
+
+	double lamda_left = std::min(left_minus_lamda, right_minus_lamda);
+	double lamda_right = std::max(left_plus_lamda, right_plus_lamda);
+
+	return {lamda_left, lamda_right};
 }
 
 
@@ -344,7 +400,7 @@ std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std:
 	return U_c;
 }
 
-std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables P_right)
+std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right)
 {
 
 	// Here we calculate the conservative variables for the left and right states
@@ -355,8 +411,9 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 	std::vector<double> F_right = calculate_F(P_right);
 
 	// Here we calculate the wave speeds and the intermediate states
-	double lamda_left = calculate_lamda_left();
-	double lamda_right = calculate_lamda_right();
+	std::vector<double> lamdas = calculate_lamdas(P_left, P_right, p_g_left, p_g_right);
+	double lamda_left = lamdas[0];
+	double lamda_right = lamdas[1];
 
 	std::vector<double> R_left = calculate_R(U_left, F_left, lamda_left);	  // temp lamda for now, we will replace this with the actual calculation later on
 	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right); // temp lamda for now, we will replace this with the actual calculation later on
