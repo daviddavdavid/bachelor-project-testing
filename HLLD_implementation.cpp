@@ -32,19 +32,17 @@ int main()
 	std::vector<double> B_right;
 	double p_g_right;
 
-	// This should be replaced with the actual values for the left and right states, for now we will just use some placeholder values
-	conserved_variables P_left = calculate_P(rho_left, v_left, B_left, p_g_left);
-	conserved_variables P_right = calculate_P(rho_right, v_right, B_right, p_g_right);
-
 	// Here we call the HLLD solver with the left and right states and get the result
-	std::vector<double> result = HLLD_solver(P_left, P_right, p_g_left, p_g_right);
+	std::vector<double> result = HLLD_solver(v_left, v_right, B_left, B_right, p_g_left, p_g_right, rho_left, rho_right);
 
 	return 0;
 }
 
 double calculate_gamma_factor(double v_x, double v_y, double v_z)
 {
-	double denominator = std::sqrt(1 - (v_x * v_x + v_y * v_y + v_z * v_z));
+	double v_squared = v_x * v_x + v_y * v_y + v_z * v_z;
+	v_squared = std::min(0.9999, v_squared);
+	double denominator = std::sqrt(1 - v_squared);
 	denominator = prevent_zero_division(denominator);
 	double gamma_factor = 1 / denominator;
 	return gamma_factor;
@@ -57,7 +55,7 @@ double calculate_b0(double B_x, double B_y, double B_z, double v_x, double v_y, 
 }
 
 double calculate_eta(conserved_variables P, double w, double sign)
-{	
+{
 	double sign_Bx = (P.B_x >= 0.0) ? 1.0 : -1.0;
 	double eta = sign * sign_Bx * std::sqrt(w);
 	return eta;
@@ -137,14 +135,21 @@ conserved_variables calculate_P(double rho, std::vector<double> v, std::vector<d
 }
 
 // Used when we divide by a quantity such that we do not get any 0 divison errors
-double prevent_zero_division(double value) {
-	if (std::abs(value) < EPSILON) {
-		if (value >= 0) {
+double prevent_zero_division(double value)
+{
+	if (std::abs(value) < EPSILON)
+	{
+		if (value >= 0)
+		{
 			return EPSILON;
-		} else {
+		}
+		else
+		{
 			return -EPSILON;
 		}
-	} else {
+	}
+	else
+	{
 		return value;
 	}
 }
@@ -159,9 +164,11 @@ std::vector<double> calculate_R(std::vector<double> U, std::vector<double> F, do
 	return R;
 }
 
-double quartic_function(double lamda, conserved_variables P, double p_g)
-{	
-	P.w = prevent_zero_division(P.w);
+double quartic_function(double lamda, conserved_variables P, double p_g, double rho)
+{
+	// It would have been better to divide D by gamma instead, but it works I guess
+	double w_g = rho + p_g * (GAMMA_EOS / (GAMMA_EOS - 1));
+
 	double c_s_squared = GAMMA_EOS * p_g / P.w; // c_s^2 = gamma_eos * p_g / w
 	double gamma = calculate_gamma_factor(P.v_x, P.v_y, P.v_z);
 	double a = gamma * (lamda - P.v_x);
@@ -173,63 +180,67 @@ double quartic_function(double lamda, conserved_variables P, double p_g)
 	double b_0 = gamma * v_dot_B;
 	double special_B_squared = (b_x - lamda * b_0) * (b_x - lamda * b_0);
 	double abs_b_squared = std::abs(P.B_x * P.B_x + P.B_y * P.B_y + P.B_z * P.B_z) / (gamma * gamma) +
-					   (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z) * (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z);
+						   (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z) * (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z);
 
-	double F_of_lamda = P.w * (1- c_s_squared) * std::pow(a, 4.0) - (1- lamda * lamda) * ((abs_b_squared + P.w * c_s_squared) * a * a - c_s_squared) * special_B_squared;
+	double F_of_lamda = P.w * (1 - c_s_squared) * std::pow(a, 4.0) - (1 - lamda * lamda) * ((abs_b_squared + P.w * c_s_squared) * a * a - c_s_squared) * special_B_squared;
 	return F_of_lamda;
 }
 
-double bisection_loop_lamda(conserved_variables P, double left_lamda, double right_lamda, double p_g, double v_x) {
+double bisection_loop_lamda(conserved_variables P, double left_lamda, double right_lamda, double p_g, double v_x, double rho)
+{
 	double error_margin = 1e-6;
 	double midpoint_lamda = (left_lamda + right_lamda) / 2.0;
 
 	while (std::abs(left_lamda - right_lamda) > error_margin)
 	{
 		double midpoint_lamda = (left_lamda + right_lamda) / 2.0;
-		double f_midpoint = quartic_function(midpoint_lamda, P, p_g);
-		double f_left = quartic_function(left_lamda, P, p_g);
-		
-		if (f_midpoint * f_left < 0) {
+		double f_midpoint = quartic_function(midpoint_lamda, P, p_g, rho);
+		double f_left = quartic_function(left_lamda, P, p_g, rho);
+
+		if (f_midpoint * f_left < 0)
+		{
 			right_lamda = midpoint_lamda;
-		} else if (f_midpoint * f_left > 0) {
+		}
+		else if (f_midpoint * f_left > 0)
+		{
 			left_lamda = midpoint_lamda;
-		} else {
+		}
+		else
+		{
 			return midpoint_lamda; // Found an exact root
 		}
-
 	}
 	return midpoint_lamda;
 }
 // I decided to use the bisection method for now
 // In the future, I might replace this with a faster algorithm
-std::vector<double> calculate_lamdas(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right)
-{	
+std::vector<double> calculate_lamdas(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right, double rho_left, double rho_right)
+{
 	// For the left side of the boundary
 	double left_plus_lamda = P_left.v_x;
 	double right_plus_lamda = 1;
 
-	double left_plus_lamda_found = bisection_loop_lamda(P_left, left_plus_lamda, right_plus_lamda, p_g_left, P_left.v_x);
+	double left_plus_lamda_found = bisection_loop_lamda(P_left, left_plus_lamda, right_plus_lamda, p_g_left, P_left.v_x, rho_left);
 
 	double left_minus_lamda = -1;
 	double right_minus_lamda = P_left.v_x;
-	double left_minus_lamda_found = bisection_loop_lamda(P_left, left_minus_lamda, right_minus_lamda, p_g_left, P_left.v_x);
+	double left_minus_lamda_found = bisection_loop_lamda(P_left, left_minus_lamda, right_minus_lamda, p_g_left, P_left.v_x, rho_left);
 
 	// For the right side of the boundary
 	double left_plus_lamda = P_right.v_x;
 	double right_plus_lamda = 1;
 
-	double left_plus_lamda_found = bisection_loop_lamda(P_right, left_plus_lamda, right_plus_lamda, p_g_right, P_right.v_x);
+	double left_plus_lamda_found = bisection_loop_lamda(P_right, left_plus_lamda, right_plus_lamda, p_g_right, P_right.v_x, rho_right);
 
 	double left_minus_lamda = -1;
 	double right_minus_lamda = -P_right.v_x;
-	double left_minus_lamda_found = bisection_loop_lamda(P_right, left_minus_lamda, right_minus_lamda, p_g_right, P_right.v_x);
+	double left_minus_lamda_found = bisection_loop_lamda(P_right, left_minus_lamda, right_minus_lamda, p_g_right, P_right.v_x, rho_right);
 
 	double lamda_left = std::min(left_minus_lamda, right_minus_lamda);
 	double lamda_right = std::max(left_plus_lamda, right_plus_lamda);
 
 	return {lamda_left, lamda_right};
 }
-
 
 // R_D = R_0
 // R_mk = R_123
@@ -245,11 +256,10 @@ std::vector<double> calculate_v(std::vector<double> R, conserved_variables P, do
 	double Q = {-A - G + P.B_x * P.B_x * (1 - lamda * lamda)};
 	double X = {P.B_x * (A * lamda * P.B_x + C) - (A + G) * (lamda * p_guess + R[4])};
 
-
 	// Making sure we do not get any 0 division errors
 	X = prevent_zero_division(X);
 	v[0] = (P.B_x * (A * P.B_x + C * lamda) - (A + G) * (p_guess + R[1])) / (X);
-	v[1] = (Q * R[2] + R[6] * (C + P.B_x* (lamda * R[1] - R[4]))) / (X);
+	v[1] = (Q * R[2] + R[6] * (C + P.B_x * (lamda * R[1] - R[4]))) / (X);
 	v[2] = (Q * R[3] + R[7] * (C + P.B_x * (lamda * R[1] - R[4]))) / (X);
 
 	return v;
@@ -261,9 +271,8 @@ std::vector<double> calculate_B(std::vector<double> R, conserved_variables P, st
 
 	double denominator = lamda - v[0];
 	denominator = prevent_zero_division(denominator);
-	
 
-	B[0] = P.B_x; // B_x is constant across the discontinuity
+	B[0] = P.B_x;								// B_x is constant across the discontinuity
 	B[1] = (R[6] - P.B_x * v[1]) / denominator; // B_y = R_b2 - B_x * v_y / (lamda - v_x)
 	B[2] = (R[7] - P.B_x * v[2]) / denominator; // B_z = R_b3 - B_x * v_z / (lamda - v_x)
 
@@ -284,24 +293,24 @@ std::vector<double> calculate_K(std::vector<double> R, std::vector<double> B, do
 	std::vector<double> K(3);
 
 	// Denominator for Equation 43: lamda * p + R_E + Bx * eta
-    // R[4] corresponds to R_E (Energy component)
-    double denominator = lamda * p_guess + R[4] + B[0] * eta;
+	// R[4] corresponds to R_E (Energy component)
+	double denominator = lamda * p_guess + R[4] + B[0] * eta;
 	denominator = prevent_zero_division(denominator);
 
-    // R[1] corresponds to R_mx
-    K[0] = (R[1] + p_guess + R[5] * eta) / (denominator);
+	// R[1] corresponds to R_mx
+	K[0] = (R[1] + p_guess + R[5] * eta) / (denominator);
 
-    // R[2] corresponds to R_my, R[6] corresponds to R_By
-    K[1] = (R[2] + R[6] * eta) / (denominator);
+	// R[2] corresponds to R_my, R[6] corresponds to R_By
+	K[1] = (R[2] + R[6] * eta) / (denominator);
 
-    // R[3] corresponds to R_mz, R[7] corresponds to R_Bz
-    K[2] = (R[3] + R[7] * eta) / (denominator);
+	// R[3] corresponds to R_mz, R[7] corresponds to R_Bz
+	K[2] = (R[3] + R[7] * eta) / (denominator);
 
 	return K;
 }
 
-std::vector<double> calculate_B_c(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right, 
-	double lamda_L, double lamda_R, double K_left_x, double K_right_x, double P_left_B_x)
+std::vector<double> calculate_B_c(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
+								  double lamda_L, double lamda_R, double K_left_x, double K_right_x, double P_left_B_x)
 {
 	std::vector<double> B_c(3);
 
@@ -368,29 +377,29 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 						std::vector<double> R_left, std::vector<double> R_right, double lamda_left, double lamda_right, double p_guess)
 {
 
-	std::vector<double> v_left = calculate_v(R_left, P_left, lamda_left, p_guess);	  
-	std::vector<double> v_right = calculate_v(R_right, P_right, lamda_right, p_guess); 
+	std::vector<double> v_left = calculate_v(R_left, P_left, lamda_left, p_guess);
+	std::vector<double> v_right = calculate_v(R_right, P_right, lamda_right, p_guess);
 
-	std::vector<double> B_left = calculate_B(R_left, P_left, v_left, lamda_left);	  
+	std::vector<double> B_left = calculate_B(R_left, P_left, v_left, lamda_left);
 	std::vector<double> B_right = calculate_B(R_right, P_right, v_right, lamda_right);
 
-	double w_left = calculate_w(R_left, P_left, v_left, lamda_left, p_guess);	  
+	double w_left = calculate_w(R_left, P_left, v_left, lamda_left, p_guess);
 	double w_right = calculate_w(R_right, P_right, v_right, lamda_right, p_guess);
 
 	// step 3: Calculate K and the B_c field in the intermediate state
-	double eta_left = calculate_eta(P_left, w_left, -1); // eta is -1 for the left state
+	double eta_left = calculate_eta(P_left, w_left, -1);   // eta is -1 for the left state
 	double eta_right = calculate_eta(P_right, w_right, 1); // eta is 1 for the right state
 
-	std::vector<double> K_left = calculate_K(R_left, B_left, lamda_left, p_guess, eta_left); 
+	std::vector<double> K_left = calculate_K(R_left, B_left, lamda_left, p_guess, eta_left);
 	std::vector<double> K_right = calculate_K(R_right, B_right, lamda_right, p_guess, eta_right);
 
 	std::vector<double> B_c = calculate_B_c(v_left, v_right, B_left, B_right, lamda_left, lamda_right, K_left[0], K_right[0]);
 
-	double Y_left = calculate_Y_L(K_left, K_right, B_c, eta_left); // eta is -1 for the left state
+	double Y_left = calculate_Y_L(K_left, K_right, B_c, eta_left);	 // eta is -1 for the left state
 	double Y_right = calculate_Y_R(K_left, K_right, B_c, eta_right); // eta is 1 for the right state
 
 	double delta_K_x = K_right[0] - K_left[0];
-	double B_x = P_left.B_x; // B_x is constant across the discontinuity
+	double B_x = P_left.B_x;									  // B_x is constant across the discontinuity
 	double f_of_p = (delta_K_x * (1 - B_x * (Y_right - Y_left))); // This is a placeholder for the actual calculation of f(p), we will replace this with the actual calculation later on
 	return f_of_p;
 }
@@ -421,7 +430,7 @@ std::vector<double> calculate_flux_intermediate_region(std::vector<double> U_a, 
 	return flux;
 }
 
-std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std::vector<double> B_c, std::vector<double> m_c) 
+std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std::vector<double> B_c, std::vector<double> m_c)
 {
 	std::vector<double> U_c(8);
 	U_c[0] = D_c;
@@ -436,8 +445,12 @@ std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std:
 	return U_c;
 }
 
-std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right)
+std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
+								double p_g_left, double p_g_right, double rho_left, double rho_right)
 {
+	// First the conserved variable P of course
+	conserved_variables P_left = calculate_P(rho_left, v_left, B_left, p_g_left);
+	conserved_variables P_right = calculate_P(rho_right, v_right, B_right, p_g_right);
 
 	// Here we calculate the conservative variables for the left and right states
 	std::vector<double> U_left = calculate_U(P_left);
@@ -447,28 +460,29 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 	std::vector<double> F_right = calculate_F(P_right);
 
 	// Here we calculate the wave speeds and the intermediate states
-	std::vector<double> lamdas = calculate_lamdas(P_left, P_right, p_g_left, p_g_right);
+	std::vector<double> lamdas = calculate_lamdas(P_left, P_right, p_g_left, p_g_right, rho_left, rho_right);
 	double lamda_left = lamdas[0];
 	double lamda_right = lamdas[1];
 
 	std::vector<double> R_left = calculate_R(U_left, F_left, lamda_left);	  // temp lamda for now, we will replace this with the actual calculation later on
 	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right); // temp lamda for now, we will replace this with the actual calculation later on
 
-	double p_old = calculate_p_hll(P_left); // This is a placeholder for the actual calculation of p_hll, we will replace this with the actual calculation later on
+	double p_old = calculate_p_hll(P_left);	 // This is a placeholder for the actual calculation of p_hll, we will replace this with the actual calculation later on
 	double p_new = calculate_p_hll(P_right); // This is a placeholder for the actual calculation of p_hll, we will replace this with the actual calculation later on
 
 	double f_of_p_old = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_old);
 
 	// This is a simple convergence criterion, we will replace this with the actual convergence criterion later on
-	while (std::abs(p_old - p_new) > 1e-6) {
-		
+	while (std::abs(p_old - p_new) > 1e-6)
+	{
+
 		// Here we use the secant method with f(p) and update p till our convergence criterion meets
 		double f_of_p_new = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_new);
 
 		double denominator = f_of_p_new - f_of_p_old;
 		denominator = prevent_zero_division(denominator);
-		double p_next = p_new -f_of_p_new * (p_new - p_old) / (denominator); // This is a placeholder for the actual update of p, we will replace this with the actual calculation later on
-		
+		double p_next = p_new - f_of_p_new * (p_new - p_old) / (denominator); // This is a placeholder for the actual update of p, we will replace this with the actual calculation later on
+		p_next = std::max(EPSILON, p_next);									  // prevents negative pressure
 		p_old = p_new;
 		f_of_p_old = f_of_p_new;
 
@@ -478,103 +492,110 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 	double p_found = p_new; // This is the value of p that we found after convergence
 
 	// Now we calculate all the final values for the a left and a right and c state
-	std::vector<double> v_a_left = calculate_v(R_left, P_left, lamda_left, p_found);	  
-	std::vector<double> v_a_right = calculate_v(R_right, P_right, lamda_right, p_found); 
+	std::vector<double> v_a_left = calculate_v(R_left, P_left, lamda_left, p_found);
+	std::vector<double> v_a_right = calculate_v(R_right, P_right, lamda_right, p_found);
 
-	std::vector<double> B_a_left = calculate_B(R_left, P_left, v_a_left, lamda_left);	  
+	std::vector<double> B_a_left = calculate_B(R_left, P_left, v_a_left, lamda_left);
 	std::vector<double> B_a_right = calculate_B(R_right, P_right, v_a_right, lamda_right);
 
-	double w_a_left = calculate_w(R_left, P_left, v_a_left, lamda_left, p_found);	  
+	double w_a_left = calculate_w(R_left, P_left, v_a_left, lamda_left, p_found);
 	double w_a_right = calculate_w(R_right, P_right, v_a_right, lamda_right, p_found);
 
-	double eta_a_left = calculate_eta(P_left, w_a_left, -1); // eta is -1 for the left state
+	double eta_a_left = calculate_eta(P_left, w_a_left, -1);   // eta is -1 for the left state
 	double eta_a_right = calculate_eta(P_right, w_a_right, 1); // eta is 1 for the right state
 
-	std::vector<double> K_a_left = calculate_K(R_left, B_a_left, lamda_left, p_found, eta_a_left); 
+	std::vector<double> K_a_left = calculate_K(R_left, B_a_left, lamda_left, p_found, eta_a_left);
 	std::vector<double> K_a_right = calculate_K(R_right, B_a_right, lamda_right, p_found, eta_a_right);
 
 	// B_c_left = B_c_right = B_c, since B_c is constant across the discontinuity
 	std::vector<double> B_c = calculate_B_c(v_a_left, v_a_right, B_a_left, B_a_right, lamda_left, lamda_right, K_a_left[0], K_a_right[0]);
 
-	double Y_a_left = calculate_Y_L(K_a_left, K_a_right, B_c, eta_a_left); // eta is -1 for the left state
+	double Y_a_left = calculate_Y_L(K_a_left, K_a_right, B_c, eta_a_left);	 // eta is -1 for the left state
 	double Y_a_right = calculate_Y_R(K_a_left, K_a_right, B_c, eta_a_right); // eta is 1 for the right state
 
-	double lamda_c = 0; // This is a placeholder for the actual calculation of lamda_c, we will replace this with the actual calculation later on
+	std::vector<double> v_c_left = calculate_v_c(K_a_left, B_c, eta_a_left);
+	double lamda_c = v_c_left[0]; // doesnt matter which v_c we use, since we used the secant algorithm to make them the same
 	double lamda_a_left = K_a_left[0];
 	double lamda_a_right = K_a_right[0];
 
 	std::vector<double> final_flux;
-	if (lamda_left > 0) {
+	if (lamda_left > 0)
+	{
 		final_flux = F_left; // flux_chooser = F_left
-		
-	} else if (lamda_left < 0 && lamda_a_left > 0) {
+	}
+	else if (lamda_left < 0 && lamda_a_left > 0)
+	{
 		double denominator = lamda_left - v_a_left[0];
 		denominator = prevent_zero_division(denominator);
 		double D_a_left = R_left[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
-		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
+		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found);
 		final_flux = calculate_F(P_a_left); // F_left
-
-	} else if (lamda_a_left < 0 && lamda_c > 0) {
+	}
+	else if (lamda_a_left < 0 && lamda_c > 0)
+	{
 		double denominator = lamda_left - v_a_left[0];
 		denominator = prevent_zero_division(denominator);
 		double D_a_left = R_left[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
-		
-		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
+
+		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found);
 		std::vector<double> U_a_left = calculate_U(P_a_left); // U_left
 		std::vector<double> F_a_left = calculate_F(P_a_left); // F_left
 
-		std::vector<double> v_c_left = calculate_v_c(K_a_left, B_a_left, eta_a_left); // v_c is a placeholder for the actual calculation of v_c, we will replace this with the actual calculation later on
+		std::vector<double> v_c_left = calculate_v_c(K_a_left, B_c, eta_a_left); // v_c is a placeholder for the actual calculation of v_c, we will replace this with the actual calculation later on
 		denominator = lamda_a_left - v_c_left[0];
 		denominator = prevent_zero_division(denominator);
-		
-		double D_c_left = D_a_left * (lamda_a_left - v_a_left[0]) / (denominator); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
-		double E_a_left = U_a_left[4]; // E_a = U[4]
-		double m_a_x_left = F_a_left[4]; // m_a_x = F[4]
+
+		double D_c_left = D_a_left * (lamda_a_left - v_a_left[0]) / (denominator);																											   // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
+		double E_a_left = U_a_left[4];																																						   // E_a = U[4]
+		double m_a_x_left = F_a_left[4];																																					   // m_a_x = F[4]
 		double E_c_left = (lamda_a_left * E_a_left - m_a_x_left + p_found * v_c_left[0] - (v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2]) * B_a_left[0]) / (denominator); // E_c = lamda_a * E_a - m_a_x + p * v_c
-		
+
 		std::vector<double> m_c_left(3);
 		double v_c_dot_B_c = v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2];
 		m_c_left[0] = (E_c_left + p_found) * v_c_left[0] - v_c_dot_B_c * B_c[0];
 		m_c_left[1] = (E_c_left + p_found) * v_c_left[1] - v_c_dot_B_c * B_c[1];
 		m_c_left[2] = (E_c_left + p_found) * v_c_left[2] - v_c_dot_B_c * B_c[2];
 
-		std::vector<double> U_c_left = calculate_U_intermediate_region(D_c_left, E_c_left, B_c, m_c_left); 
+		std::vector<double> U_c_left = calculate_U_intermediate_region(D_c_left, E_c_left, B_c, m_c_left);
 		final_flux = calculate_flux_intermediate_region(U_a_left, U_c_left, F_a_left, lamda_c);
-
-	} else if (lamda_c < 0 && lamda_a_right > 0) {
+	}
+	else if (lamda_c < 0 && lamda_a_right > 0)
+	{
 		double denominator = lamda_right - v_a_right[0];
 		denominator = prevent_zero_division(denominator);
 		double D_a_right = R_right[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
-		
-		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found); 
+
+		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found);
 		std::vector<double> U_a_right = calculate_U(P_a_right); // U_right
 		std::vector<double> F_a_right = calculate_F(P_a_right); // F_right
 
-		std::vector<double> v_c_right = calculate_v_c(K_a_right, B_a_right, eta_a_right); 
+		std::vector<double> v_c_right = calculate_v_c(K_a_right, B_c, eta_a_right);
 
 		denominator = lamda_a_right - v_c_right[0];
 		denominator = prevent_zero_division(denominator);
-		
-		double D_c_right = D_a_right * (lamda_a_right - v_a_right[0]) / (denominator); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
-		double E_a_right = U_a_right[4]; // E_a = U[4]
-		double m_a_x_right = F_a_right[4]; // m_a_x = F[4]
+
+		double D_c_right = D_a_right * (lamda_a_right - v_a_right[0]) / (denominator);																													// D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
+		double E_a_right = U_a_right[4];																																								// E_a = U[4]
+		double m_a_x_right = F_a_right[4];																																								// m_a_x = F[4]
 		double E_c_right = (lamda_a_right * E_a_right - m_a_x_right + p_found * v_c_right[0] - (v_c_right[0] * B_c[0] + v_c_right[1] * B_c[1] + v_c_right[2] * B_c[2]) * B_a_right[0]) / (denominator); // E_c = lamda_a * E_a - m_a_x + p * v_c
-		
+
 		std::vector<double> m_c_right(3);
 		double v_c_dot_B_c = v_c_right[0] * B_c[0] + v_c_right[1] * B_c[1] + v_c_right[2] * B_c[2];
 		m_c_right[0] = (E_c_right + p_found) * v_c_right[0] - v_c_dot_B_c * B_c[0];
 		m_c_right[1] = (E_c_right + p_found) * v_c_right[1] - v_c_dot_B_c * B_c[1];
 		m_c_right[2] = (E_c_right + p_found) * v_c_right[2] - v_c_dot_B_c * B_c[2];
 
-		std::vector<double> U_c_right = calculate_U_intermediate_region(D_c_right, E_c_right, B_c, m_c_right); 
+		std::vector<double> U_c_right = calculate_U_intermediate_region(D_c_right, E_c_right, B_c, m_c_right);
 		final_flux = calculate_flux_intermediate_region(U_a_right, U_c_right, F_a_right, lamda_c);
-
-	} else if (lamda_a_right < 0 && lamda_right > 0) {
+	}
+	else if (lamda_a_right < 0 && lamda_right > 0)
+	{
 		double D_a_right = R_right[0] / (lamda_right - v_a_right[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
-		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found); 
+		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found);
 		final_flux = calculate_F(P_a_right); // F_right
-	
-	} else if (lamda_right < 0) {
+	}
+	else if (lamda_right < 0)
+	{
 		final_flux = F_right; // flux_chooser = F_right
 	}
 
