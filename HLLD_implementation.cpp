@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <cassert>
 
 const double GAMMA_EOS = 5.0 / 3.0;
 const double EPSILON = 1e-10;
@@ -18,24 +19,59 @@ struct conserved_variables
 	double p;
 };
 
-std::vector<double> HLLD_solver(std::vector<double> P_left, std::vector<double> P_right);
+std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
+								double p_g_left, double p_g_right, double rho_left, double rho_right);
+void printFlux(std::vector<double> vec);
+double prevent_zero_division(double value);
 
 int main()
 {
 	// our starting values for the left and right states
-	double rho_left;
-	std::vector<double> v_left;
-	std::vector<double> B_left;
-	double p_g_left;
-	double rho_right;
-	std::vector<double> v_right;
-	std::vector<double> B_right;
-	double p_g_right;
+	double rho_left {1.0};
+	std::vector<double> v_left {0, 0, 0};
+	std::vector<double> B_left {1e-9, 0, 0};
+	double p_g_left {1.0};
+	double rho_right {1.0};
+	std::vector<double> v_right {0, 0.0, 0.0};
+	std::vector<double> B_right {1e-9, 0, 0};
+	double p_g_right {1.0};
+
+	// We are not dividing by B, however the does not find a lamda_L and lamda_R as B goes to 0
+	B_left[0] = prevent_zero_division(B_left[0]);
+	B_right[0] = prevent_zero_division(B_right[0]);
 
 	// Here we call the HLLD solver with the left and right states and get the result
+	std::cout << "Initializing HLLD solver \n";
 	std::vector<double> result = HLLD_solver(v_left, v_right, B_left, B_right, p_g_left, p_g_right, rho_left, rho_right);
+	printFlux(result);
 
 	return 0;
+}
+
+void printFlux(std::vector<double> vec) {
+	for (int i = 0; i < vec.size(); i++) {
+        std::cout << "F[" << i << "]" << " = " << vec[i] << "\n";
+    }
+}
+
+// Used when we divide by a quantity such that we do not get any 0 divison errors
+double prevent_zero_division(double value)
+{
+	if (std::abs(value) < EPSILON)
+	{
+		if (value >= 0)
+		{
+			return EPSILON;
+		}
+		else
+		{
+			return -EPSILON;
+		}
+	}
+	else
+	{
+		return value;
+	}
 }
 
 double calculate_gamma_factor(double v_x, double v_y, double v_z)
@@ -104,7 +140,7 @@ std::vector<double> calculate_F(conserved_variables P)
 	F[2] = P.w * gamma_factor * gamma_factor * P.v_y * P.v_x - bk[1] * bk[0];
 	F[3] = P.w * gamma_factor * gamma_factor * P.v_z * P.v_x - bk[2] * bk[0];
 	F[4] = P.w * gamma_factor * gamma_factor * P.v_x - b_0 * bk[0];
-	F[5] = 0;
+	F[5] = 0.0;
 	F[6] = P.B_y * P.v_x - P.B_x * P.v_y;
 	F[7] = P.B_z * P.v_x - P.B_x * P.v_z;
 	return F;
@@ -112,6 +148,7 @@ std::vector<double> calculate_F(conserved_variables P)
 // P = {D, v_x, v_y, v_z, B_x, B_y, B_z, w, p}
 conserved_variables calculate_P(double rho, std::vector<double> v, std::vector<double> B, double p_g)
 {
+	assert(v.size() >= 3 && "Velocity vector v must have at least 3 elements");
 	double gamma = calculate_gamma_factor(v[0], v[1], v[2]);
 	double D = rho * gamma; // D = rho * gamma
 	double b_squared = (B[0] * B[0] + B[1] * B[1] + B[2] * B[2]) / (gamma * gamma) +
@@ -132,26 +169,6 @@ conserved_variables calculate_P(double rho, std::vector<double> v, std::vector<d
 	P.p = p;
 
 	return P;
-}
-
-// Used when we divide by a quantity such that we do not get any 0 divison errors
-double prevent_zero_division(double value)
-{
-	if (std::abs(value) < EPSILON)
-	{
-		if (value >= 0)
-		{
-			return EPSILON;
-		}
-		else
-		{
-			return -EPSILON;
-		}
-	}
-	else
-	{
-		return value;
-	}
 }
 
 std::vector<double> calculate_R(std::vector<double> U, std::vector<double> F, double lamda)
@@ -217,27 +234,27 @@ double bisection_loop_lamda(conserved_variables P, double left_lamda, double rig
 std::vector<double> calculate_lamdas(conserved_variables P_left, conserved_variables P_right, double p_g_left, double p_g_right, double rho_left, double rho_right)
 {
 	// For the left side of the boundary
-	double left_plus_lamda = P_left.v_x;
-	double right_plus_lamda = 1;
+	double left_plus_lamda{P_left.v_x};
+	double right_plus_lamda{1};
 
 	double left_plus_lamda_found = bisection_loop_lamda(P_left, left_plus_lamda, right_plus_lamda, p_g_left, P_left.v_x, rho_left);
 
-	double left_minus_lamda = -1;
-	double right_minus_lamda = P_left.v_x;
+	double left_minus_lamda{-1};
+	double right_minus_lamda{P_left.v_x};
 	double left_minus_lamda_found = bisection_loop_lamda(P_left, left_minus_lamda, right_minus_lamda, p_g_left, P_left.v_x, rho_left);
 
 	// For the right side of the boundary
-	double left_plus_lamda = P_right.v_x;
-	double right_plus_lamda = 1;
+	left_plus_lamda = P_right.v_x;
+	right_plus_lamda = 1;
 
-	double left_plus_lamda_found = bisection_loop_lamda(P_right, left_plus_lamda, right_plus_lamda, p_g_right, P_right.v_x, rho_right);
+	double right_plus_lamda_found = bisection_loop_lamda(P_right, left_plus_lamda, right_plus_lamda, p_g_right, P_right.v_x, rho_right);
 
-	double left_minus_lamda = -1;
-	double right_minus_lamda = -P_right.v_x;
-	double left_minus_lamda_found = bisection_loop_lamda(P_right, left_minus_lamda, right_minus_lamda, p_g_right, P_right.v_x, rho_right);
+	left_minus_lamda = -1;
+	right_minus_lamda = -P_right.v_x;
+	double right_minus_lamda_found = bisection_loop_lamda(P_right, left_minus_lamda, right_minus_lamda, p_g_right, P_right.v_x, rho_right);
 
-	double lamda_left = std::min(left_minus_lamda, right_minus_lamda);
-	double lamda_right = std::max(left_plus_lamda, right_plus_lamda);
+	double lamda_left = std::min(left_minus_lamda_found, right_minus_lamda_found);
+	double lamda_right = std::max(left_plus_lamda_found, right_plus_lamda_found);
 
 	return {lamda_left, lamda_right};
 }
@@ -393,7 +410,7 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 	std::vector<double> K_left = calculate_K(R_left, B_left, lamda_left, p_guess, eta_left);
 	std::vector<double> K_right = calculate_K(R_right, B_right, lamda_right, p_guess, eta_right);
 
-	std::vector<double> B_c = calculate_B_c(v_left, v_right, B_left, B_right, lamda_left, lamda_right, K_left[0], K_right[0]);
+	std::vector<double> B_c = calculate_B_c(v_left, v_right, B_left, B_right, lamda_left, lamda_right, K_left[0], K_right[0], P_left.B_x);
 
 	double Y_left = calculate_Y_L(K_left, K_right, B_c, eta_left);	 // eta is -1 for the left state
 	double Y_right = calculate_Y_R(K_left, K_right, B_c, eta_right); // eta is 1 for the right state
@@ -508,7 +525,7 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 	std::vector<double> K_a_right = calculate_K(R_right, B_a_right, lamda_right, p_found, eta_a_right);
 
 	// B_c_left = B_c_right = B_c, since B_c is constant across the discontinuity
-	std::vector<double> B_c = calculate_B_c(v_a_left, v_a_right, B_a_left, B_a_right, lamda_left, lamda_right, K_a_left[0], K_a_right[0]);
+	std::vector<double> B_c = calculate_B_c(v_a_left, v_a_right, B_a_left, B_a_right, lamda_left, lamda_right, K_a_left[0], K_a_right[0], P_left.B_x);
 
 	double Y_a_left = calculate_Y_L(K_a_left, K_a_right, B_c, eta_a_left);	 // eta is -1 for the left state
 	double Y_a_right = calculate_Y_R(K_a_left, K_a_right, B_c, eta_a_right); // eta is 1 for the right state
