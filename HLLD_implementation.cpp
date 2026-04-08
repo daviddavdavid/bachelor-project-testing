@@ -44,7 +44,9 @@ int main()
 
 double calculate_gamma_factor(double v_x, double v_y, double v_z)
 {
-	double gamma_factor = 1.0 / (std::sqrt(1 - (v_x * v_x + v_y * v_y + v_z * v_z)) + EPSILON); // gamma = 1 / sqrt(1 - v^2 / c^2)
+	double denominator = std::sqrt(1 - (v_x * v_x + v_y * v_y + v_z * v_z));
+	denominator = prevent_zero_division(denominator);
+	double gamma_factor = 1 / denominator;
 	return gamma_factor;
 }
 
@@ -134,6 +136,19 @@ conserved_variables calculate_P(double rho, std::vector<double> v, std::vector<d
 	return P;
 }
 
+// Used when we divide by a quantity such that we do not get any 0 divison errors
+double prevent_zero_division(double value) {
+	if (std::abs(value) < EPSILON) {
+		if (value >= 0) {
+			return EPSILON;
+		} else {
+			return -EPSILON;
+		}
+	} else {
+		return value;
+	}
+}
+
 std::vector<double> calculate_R(std::vector<double> U, std::vector<double> F, double lamda)
 {
 	std::vector<double> R(8);
@@ -146,11 +161,14 @@ std::vector<double> calculate_R(std::vector<double> U, std::vector<double> F, do
 
 double quartic_function(double lamda, conserved_variables P, double p_g)
 {	
-	double c_s_squared = GAMMA_EOS * p_g / (P.w + EPSILON); // c_s^2 = gamma_eos * p_g / w
+	P.w = prevent_zero_division(P.w);
+	double c_s_squared = GAMMA_EOS * p_g / P.w; // c_s^2 = gamma_eos * p_g / w
 	double gamma = calculate_gamma_factor(P.v_x, P.v_y, P.v_z);
 	double a = gamma * (lamda - P.v_x);
 	double B_squared = P.B_x * P.B_x + P.B_y * P.B_y + P.B_z * P.B_z;
 	double v_dot_B = P.v_x * P.B_x + P.v_y * P.B_y + P.v_z * P.B_z;
+
+	// No 0 division check needed here as gamma always is greater than 1
 	double b_x = gamma * (B_squared / (gamma * gamma) + P.v_x * (P.B_x * P.v_x + P.B_y * P.v_y + P.B_z * P.v_z));
 	double b_0 = gamma * v_dot_B;
 	double special_B_squared = (b_x - lamda * b_0) * (b_x - lamda * b_0);
@@ -193,7 +211,7 @@ std::vector<double> calculate_lamdas(conserved_variables P_left, conserved_varia
 	double left_plus_lamda_found = bisection_loop_lamda(P_left, left_plus_lamda, right_plus_lamda, p_g_left, P_left.v_x);
 
 	double left_minus_lamda = -1;
-	double right_minus_lamda = -P_left.v_x;
+	double right_minus_lamda = P_left.v_x;
 	double left_minus_lamda_found = bisection_loop_lamda(P_left, left_minus_lamda, right_minus_lamda, p_g_left, P_left.v_x);
 
 	// For the right side of the boundary
@@ -227,9 +245,12 @@ std::vector<double> calculate_v(std::vector<double> R, conserved_variables P, do
 	double Q = {-A - G + P.B_x * P.B_x * (1 - lamda * lamda)};
 	double X = {P.B_x * (A * lamda * P.B_x + C) - (A + G) * (lamda * p_guess + R[4])};
 
-	v[0] = (P.B_x * (A * P.B_x + C * lamda) - (A + G) * (p_guess + R[1])) / (X + EPSILON);
-	v[1] = (Q * R[2] + R[6] * (C + P.B_x* (lamda * R[1] - R[4]))) / (X + EPSILON);
-	v[2] = (Q * R[3] + R[7] * (C + P.B_x * (lamda * R[1] - R[4]))) / (X + EPSILON);
+
+	// Making sure we do not get any 0 division errors
+	X = prevent_zero_division(X);
+	v[0] = (P.B_x * (A * P.B_x + C * lamda) - (A + G) * (p_guess + R[1])) / (X);
+	v[1] = (Q * R[2] + R[6] * (C + P.B_x* (lamda * R[1] - R[4]))) / (X);
+	v[2] = (Q * R[3] + R[7] * (C + P.B_x * (lamda * R[1] - R[4]))) / (X);
 
 	return v;
 }
@@ -238,16 +259,23 @@ std::vector<double> calculate_B(std::vector<double> R, conserved_variables P, st
 {
 	std::vector<double> B(3);
 
+	double denominator = lamda - v[0];
+	denominator = prevent_zero_division(denominator);
+	
+
 	B[0] = P.B_x; // B_x is constant across the discontinuity
-	B[1] = (R[6] - P.B_x * v[1]) / (lamda - v[0]); // B_y = R_b2 - B_x * v_y / (lamda - v_x)
-	B[2] = (R[7] - P.B_x * v[2]) / (lamda - v[0]); // B_z = R_b3 - B_x * v_z / (lamda - v_x)
+	B[1] = (R[6] - P.B_x * v[1]) / denominator; // B_y = R_b2 - B_x * v_y / (lamda - v_x)
+	B[2] = (R[7] - P.B_x * v[2]) / denominator; // B_z = R_b3 - B_x * v_z / (lamda - v_x)
 
 	return B;
 }
 
 double calculate_w(std::vector<double> R, conserved_variables P, std::vector<double> v, double lamda, double p_guess)
 {
-	double w = p_guess + (R[4] - (v[0] * R[1] + v[1] * R[2] + v[2] * R[3])) / (lamda - v[0]); // w = w + R_4 - (v_x * R_1 + v_y * R_2 + v_z * R_3) / (lamda - v_x)
+	double denominator = lamda - v[0];
+	denominator = prevent_zero_division(denominator);
+
+	double w = p_guess + (R[4] - (v[0] * R[1] + v[1] * R[2] + v[2] * R[3])) / denominator; // w = w + R_4 - (v_x * R_1 + v_y * R_2 + v_z * R_3) / (lamda - v_x)
 	return w;
 }
 
@@ -258,15 +286,16 @@ std::vector<double> calculate_K(std::vector<double> R, std::vector<double> B, do
 	// Denominator for Equation 43: lamda * p + R_E + Bx * eta
     // R[4] corresponds to R_E (Energy component)
     double denominator = lamda * p_guess + R[4] + B[0] * eta;
+	denominator = prevent_zero_division(denominator);
 
     // R[1] corresponds to R_mx
-    K[0] = (R[1] + p_guess + R[5] * eta) / (denominator + EPSILON);
+    K[0] = (R[1] + p_guess + R[5] * eta) / (denominator);
 
     // R[2] corresponds to R_my, R[6] corresponds to R_By
-    K[1] = (R[2] + R[6] * eta) / (denominator + EPSILON);
+    K[1] = (R[2] + R[6] * eta) / (denominator);
 
     // R[3] corresponds to R_mz, R[7] corresponds to R_Bz
-    K[2] = (R[3] + R[7] * eta) / (denominator + EPSILON);
+    K[2] = (R[3] + R[7] * eta) / (denominator);
 
 	return K;
 }
@@ -278,9 +307,12 @@ std::vector<double> calculate_B_c(std::vector<double> v_left, std::vector<double
 
 	B_c[0] = P_left_B_x; // B_x is constant across the discontinuity
 
+	double denominator = K_right_x - K_left_x;
+	denominator = prevent_zero_division(denominator);
+
 	for (int i = 1; i < 3; i++)
 	{
-		B_c[i] = ((B_right[i] * (lamda_R - v_right[0]) + B_right[0] * v_right[i]) - (B_left[i] * (lamda_L - v_left[0]) + B_left[0] * v_left[i])) / (K_right_x - K_left_x + EPSILON); // B_c = (B_left * (lamda_R - v_left) + B_right * (v_right - lamda_L)) / (lamda_R - lamda_L)
+		B_c[i] = ((B_right[i] * (lamda_R - v_right[0]) + B_right[0] * v_right[i]) - (B_left[i] * (lamda_L - v_left[0]) + B_left[0] * v_left[i])) / (denominator); // B_c = (B_left * (lamda_R - v_left) + B_right * (v_right - lamda_L)) / (lamda_R - lamda_L)
 	}
 
 	return B_c;
@@ -298,9 +330,10 @@ double calculate_Y_R(std::vector<double> K_left, std::vector<double> K_right, st
 	double Y_R;
 	double delta_K_x = K_right[0] - K_left[0];
 	double top = 1 - (K_right[0] * K_right[0] + K_right[1] * K_right[1] + K_right[2] * K_right[2]);
-	double bottom = eta * delta_K_x - delta_K_x * (K_right[0] * B_c[0] + K_right[1] * B_c[1] + K_right[2] * B_c[2]);
+	double denominator = eta * delta_K_x - delta_K_x * (K_right[0] * B_c[0] + K_right[1] * B_c[1] + K_right[2] * B_c[2]);
+	denominator = prevent_zero_division(denominator);
 
-	Y_R = top / bottom;
+	Y_R = top / denominator;
 	return Y_R;
 }
 
@@ -309,9 +342,9 @@ double calculate_Y_L(std::vector<double> K_left, std::vector<double> K_right, st
 	double Y_L;
 	double delta_K_x = K_right[0] - K_left[0];
 	double top = 1 - (K_left[0] * K_left[0] + K_left[1] * K_left[1] + K_left[2] * K_left[2]);
-	double bottom = eta * delta_K_x - delta_K_x * (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
-
-	Y_L = top / bottom;
+	double denominator = eta * delta_K_x - delta_K_x * (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
+	denominator = prevent_zero_division(denominator);
+	Y_L = top / denominator;
 	return Y_L;
 }
 
@@ -368,9 +401,12 @@ std::vector<double> calculate_v_c(std::vector<double> K, std::vector<double> B, 
 
 	double K_squared = K[0] * K[0] + K[1] * K[1] + K[2] * K[2];
 	double K_times_B = K[0] * B[0] + K[1] * B[1] + K[2] * B[2];
-	v_c[0] = K[0] - B[0] * (1 - K_squared) / (eta - K_times_B + EPSILON);
-	v_c[1] = K[1] - B[1] * (1 - K_squared) / (eta - K_times_B + EPSILON);
-	v_c[2] = K[2] - B[2] * (1 - K_squared) / (eta - K_times_B + EPSILON);
+
+	double denominator = eta - K_times_B;
+	denominator = prevent_zero_division(denominator);
+	v_c[0] = K[0] - B[0] * (1 - K_squared) / (denominator);
+	v_c[1] = K[1] - B[1] * (1 - K_squared) / (denominator);
+	v_c[2] = K[2] - B[2] * (1 - K_squared) / (denominator);
 
 	return v_c;
 }
@@ -428,7 +464,10 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 		
 		// Here we use the secant method with f(p) and update p till our convergence criterion meets
 		double f_of_p_new = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_new);
-		double p_next = p_new -f_of_p_new * (p_new - p_old) / (f_of_p_new - f_of_p_old + EPSILON); // This is a placeholder for the actual update of p, we will replace this with the actual calculation later on
+
+		double denominator = f_of_p_new - f_of_p_old;
+		denominator = prevent_zero_division(denominator);
+		double p_next = p_new -f_of_p_new * (p_new - p_old) / (denominator); // This is a placeholder for the actual update of p, we will replace this with the actual calculation later on
 		
 		p_old = p_new;
 		f_of_p_old = f_of_p_new;
@@ -468,56 +507,73 @@ std::vector<double> HLLD_solver(conserved_variables P_left, conserved_variables 
 	if (lamda_left > 0) {
 		final_flux = F_left; // flux_chooser = F_left
 		
-
 	} else if (lamda_left < 0 && lamda_a_left > 0) {
-		double D_a_left = R_left[0] / (lamda_left - v_a_left[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		double denominator = lamda_left - v_a_left[0];
+		denominator = prevent_zero_division(denominator);
+		double D_a_left = R_left[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
 		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
 		final_flux = calculate_F(P_a_left); // F_left
 
 	} else if (lamda_a_left < 0 && lamda_c > 0) {
-		double D_a_left = R_left[0] / (lamda_left - v_a_left[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		double denominator = lamda_left - v_a_left[0];
+		denominator = prevent_zero_division(denominator);
+		double D_a_left = R_left[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		
 		conserved_variables P_a_left = calculate_final_P(D_a_left, v_a_left, B_a_left, w_a_left, p_found); 
 		std::vector<double> U_a_left = calculate_U(P_a_left); // U_left
 		std::vector<double> F_a_left = calculate_F(P_a_left); // F_left
 
 		std::vector<double> v_c_left = calculate_v_c(K_a_left, B_a_left, eta_a_left); // v_c is a placeholder for the actual calculation of v_c, we will replace this with the actual calculation later on
-		double D_c_left = D_a_left * (lamda_a_left - v_a_left[0]) / (lamda_a_left - v_c_left[0] + EPSILON); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
+		denominator = lamda_a_left - v_c_left[0];
+		denominator = prevent_zero_division(denominator);
+		
+		double D_c_left = D_a_left * (lamda_a_left - v_a_left[0]) / (denominator); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
 		double E_a_left = U_a_left[4]; // E_a = U[4]
 		double m_a_x_left = F_a_left[4]; // m_a_x = F[4]
-		double E_c_left = (lamda_a_left * E_a_left - m_a_x_left + p_found * v_c_left[0] - (v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2]) * B_a_left[0]) / (lamda_a_left - v_c_left[0] + EPSILON); // E_c = lamda_a * E_a - m_a_x + p * v_c
+		double E_c_left = (lamda_a_left * E_a_left - m_a_x_left + p_found * v_c_left[0] - (v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2]) * B_a_left[0]) / (denominator); // E_c = lamda_a * E_a - m_a_x + p * v_c
+		
 		std::vector<double> m_c_left(3);
 		double v_c_dot_B_c = v_c_left[0] * B_c[0] + v_c_left[1] * B_c[1] + v_c_left[2] * B_c[2];
 		m_c_left[0] = (E_c_left + p_found) * v_c_left[0] - v_c_dot_B_c * B_c[0];
 		m_c_left[1] = (E_c_left + p_found) * v_c_left[1] - v_c_dot_B_c * B_c[1];
 		m_c_left[2] = (E_c_left + p_found) * v_c_left[2] - v_c_dot_B_c * B_c[2];
 
-		std::vector<double> U_c_left = calculate_U_intermediate_region(D_c_left, E_c_left, B_c, m_c_left); // U_c is a placeholder for the actual calculation of U_c, we will replace this with the actual calculation later on
+		std::vector<double> U_c_left = calculate_U_intermediate_region(D_c_left, E_c_left, B_c, m_c_left); 
 		final_flux = calculate_flux_intermediate_region(U_a_left, U_c_left, F_a_left, lamda_c);
 
 	} else if (lamda_c < 0 && lamda_a_right > 0) {
-		double D_a_right = R_right[0] / (lamda_right - v_a_right[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		double denominator = lamda_right - v_a_right[0];
+		denominator = prevent_zero_division(denominator);
+		double D_a_right = R_right[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
+		
 		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found); 
 		std::vector<double> U_a_right = calculate_U(P_a_right); // U_right
 		std::vector<double> F_a_right = calculate_F(P_a_right); // F_right
 
-		std::vector<double> v_c_right = calculate_v_c(K_a_right, B_a_right, eta_a_right); // v_c is a placeholder for the actual calculation of v_c, we will replace this with the actual calculation later on
-		double D_c_right = D_a_right * (lamda_a_right - v_a_right[0]) / (lamda_a_right - v_c_right[0] + EPSILON); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
+		std::vector<double> v_c_right = calculate_v_c(K_a_right, B_a_right, eta_a_right); 
+
+		denominator = lamda_a_right - v_c_right[0];
+		denominator = prevent_zero_division(denominator);
+		
+		double D_c_right = D_a_right * (lamda_a_right - v_a_right[0]) / (denominator); // D_c = D_a * (lamda_a - v_a) / (lamda_c - v_a)
 		double E_a_right = U_a_right[4]; // E_a = U[4]
 		double m_a_x_right = F_a_right[4]; // m_a_x = F[4]
-		double E_c_right = (lamda_a_right * E_a_right - m_a_x_right + p_found * v_c_right[0] - (v_c_right[0] * B_c[0] + v_c_right[1] * B_c[1] + v_c_right[2] * B_c[2]) * B_a_right[0]) / (lamda_a_right - v_c_right[0] + EPSILON); // E_c = lamda_a * E_a - m_a_x + p * v_c
+		double E_c_right = (lamda_a_right * E_a_right - m_a_x_right + p_found * v_c_right[0] - (v_c_right[0] * B_c[0] + v_c_right[1] * B_c[1] + v_c_right[2] * B_c[2]) * B_a_right[0]) / (denominator); // E_c = lamda_a * E_a - m_a_x + p * v_c
+		
 		std::vector<double> m_c_right(3);
 		double v_c_dot_B_c = v_c_right[0] * B_c[0] + v_c_right[1] * B_c[1] + v_c_right[2] * B_c[2];
 		m_c_right[0] = (E_c_right + p_found) * v_c_right[0] - v_c_dot_B_c * B_c[0];
 		m_c_right[1] = (E_c_right + p_found) * v_c_right[1] - v_c_dot_B_c * B_c[1];
 		m_c_right[2] = (E_c_right + p_found) * v_c_right[2] - v_c_dot_B_c * B_c[2];
 
-		std::vector<double> U_c_right = calculate_U_intermediate_region(D_c_right, E_c_right, B_c, m_c_right); // U_c is a placeholder for the actual calculation of U_c, we will replace this with the actual calculation later on
+		std::vector<double> U_c_right = calculate_U_intermediate_region(D_c_right, E_c_right, B_c, m_c_right); 
 		final_flux = calculate_flux_intermediate_region(U_a_right, U_c_right, F_a_right, lamda_c);
 
 	} else if (lamda_a_right < 0 && lamda_right > 0) {
 		double D_a_right = R_right[0] / (lamda_right - v_a_right[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
 		conserved_variables P_a_right = calculate_final_P(D_a_right, v_a_right, B_a_right, w_a_right, p_found); 
 		final_flux = calculate_F(P_a_right); // F_right
+	
 	} else if (lamda_right < 0) {
 		final_flux = F_right; // flux_chooser = F_right
 	}
