@@ -35,7 +35,7 @@ int main()
 
 	double rho_right{1.0};
 	std::vector<double> v_right{-0.5, -0.2, 0.0};
-	std::vector<double> B_right{-0.75, -0.3, 0.0};
+	std::vector<double> B_right{0.75, -0.3, 0.0};
 	double p_g_right{1.0};
 
 	// We are not dividing by B, however the does not find a lamda_L and lamda_R as B goes to 0
@@ -47,10 +47,10 @@ int main()
 	std::vector<double> result = HLLD_solver(v_left, v_right, B_left, B_right, p_g_left, p_g_right, rho_left, rho_right);
 	printFlux(result);
 
-	v_left = {-0.5, -0.2, 0.0};
-	B_left = {-0.75, -0.3, 0.0};
+	v_left = {0.5, -0.2, 0.0};
+	B_left = {0.75, -0.3, 0.0};
 
-	v_right = {0.5, 0.2, 0.0};
+	v_right = {-0.5, 0.2, 0.0};
 	B_right = {0.75, 0.3, 0.0};
 	std::cout << "Result 2: \n";
 	result = HLLD_solver(v_left, v_right, B_left, B_right, p_g_left, p_g_right, rho_left, rho_right);
@@ -395,9 +395,10 @@ double calculate_p_hll(std::vector<double> F_left, std::vector<double> F_right, 
 double calculate_Y_R(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c, double eta)
 {
 	double Y_R;
-	double delta_K_x = K_right[0] - K_left[0];
 	double top = 1 - (K_right[0] * K_right[0] + K_right[1] * K_right[1] + K_right[2] * K_right[2]);
-	double denominator = eta * delta_K_x - delta_K_x * (K_right[0] * B_c[0] + K_right[1] * B_c[1] + K_right[2] * B_c[2]);
+	// for the actual value you need to divide by delta_K_x as well, but we dont do this here because we only use Y_L/Y_R to calculate f(p) (and there it cancels)
+	// And dividing it by this quantity will lead in numerical instability
+	double denominator = eta * (K_right[0] * B_c[0] + K_right[1] * B_c[1] + K_right[2] * B_c[2]);
 	denominator = prevent_zero_division(denominator);
 
 	Y_R = top / denominator;
@@ -407,9 +408,11 @@ double calculate_Y_R(std::vector<double> K_left, std::vector<double> K_right, st
 double calculate_Y_L(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c, double eta)
 {
 	double Y_L;
-	double delta_K_x = K_right[0] - K_left[0];
 	double top = 1 - (K_left[0] * K_left[0] + K_left[1] * K_left[1] + K_left[2] * K_left[2]);
-	double denominator = eta * delta_K_x - delta_K_x * (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
+	
+	// for the actual value you need to divide by delta_K_x as well, but we dont do this here because we only use Y_L/Y_R to calculate f(p) (and there it cancels)
+	// And dividing it by this quantity will lead in numerical instability
+	double denominator = eta - (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
 	denominator = prevent_zero_division(denominator);
 	Y_L = top / denominator;
 	return Y_L;
@@ -458,7 +461,7 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 
 	double delta_K_x = K_right[0] - K_left[0];
 	double B_x = P_left.B_x;									  // B_x is constant across the discontinuity
-	double f_of_p = (delta_K_x * (1 - B_x * (Y_right - Y_left))); // This is a placeholder for the actual calculation of f(p), we will replace this with the actual calculation later on
+	double f_of_p = (delta_K_x - B_x * (Y_right - Y_left)); // As mentioned in Y_L/Y_R, we dont do the delta_K_x since it gets divided out
 	return f_of_p;
 }
 
@@ -502,6 +505,8 @@ std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std:
 
 	return U_c;
 }
+
+bool HLLD_conditions (conserv)
 
 std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
 								double p_g_left, double p_g_right, double rho_left, double rho_right)
