@@ -388,8 +388,13 @@ double calculate_p_hll(std::vector<double> F_left, std::vector<double> F_right, 
 	denominator = prevent_zero_division(denominator);
 
 	double p_hll = numerator / denominator;
-	return p_hll;
+	double B_x_squared = U_left[5] * U_left[5];
+	B_x_squared = prevent_zero_division(B_x_squared);
 
+	if (p_hll / B_x_squared < 0.1) {
+		
+	}
+	return p_hll;
 }
 
 double calculate_Y_R(std::vector<double> K_left, std::vector<double> K_right, std::vector<double> B_c, double eta)
@@ -409,7 +414,7 @@ double calculate_Y_L(std::vector<double> K_left, std::vector<double> K_right, st
 {
 	double Y_L;
 	double top = 1 - (K_left[0] * K_left[0] + K_left[1] * K_left[1] + K_left[2] * K_left[2]);
-	
+
 	// for the actual value you need to divide by delta_K_x as well, but we dont do this here because we only use Y_L/Y_R to calculate f(p) (and there it cancels)
 	// And dividing it by this quantity will lead in numerical instability
 	double denominator = eta - (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
@@ -460,7 +465,7 @@ double calculate_f_of_p(conserved_variables P_left, conserved_variables P_right,
 	double Y_right = calculate_Y_R(K_left, K_right, B_c, eta_right); // eta is 1 for the right state
 
 	double delta_K_x = K_right[0] - K_left[0];
-	double B_x = P_left.B_x;									  // B_x is constant across the discontinuity
+	double B_x = P_left.B_x;								// B_x is constant across the discontinuity
 	double f_of_p = (delta_K_x - B_x * (Y_right - Y_left)); // As mentioned in Y_L/Y_R, we dont do the delta_K_x since it gets divided out
 	return f_of_p;
 }
@@ -506,7 +511,22 @@ std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std:
 	return U_c;
 }
 
-bool HLLD_conditions (conserv)
+
+// Conditions from the mignone HLLD paper, if they match we can use
+// the solution from the HLLD solver, else not.
+bool HLLD_conditions(double p, double w_L, double w_R, double v_x_aL, double v_x_aR,
+					 double lamda_L, double lamda_R, double v_x_cL, double v_x_cR, double lamda_a_L, double lamda_a_R)
+{
+	if (w_L < p || w_R < p) {
+		return false;
+	} else if (v_x_aL < lamda_L || v_x_aR > lamda_R) {
+		return false;
+	} else if (v_x_cL < lamda_a_L || v_x_cR > lamda_a_R) {
+		return false;
+	}
+
+	return true; // conditions all matched
+}
 
 std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
 								double p_g_left, double p_g_right, double rho_left, double rho_right)
@@ -527,16 +547,16 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 	double lamda_left = lamdas[0];
 	double lamda_right = lamdas[1];
 
-	std::vector<double> R_left = calculate_R(U_left, F_left, lamda_left);	  
-	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right); 
+	std::vector<double> R_left = calculate_R(U_left, F_left, lamda_left);
+	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right);
 
 	double p_hll = calculate_p_hll(F_left, F_right, U_left, U_right, lamda_left, lamda_right);
-	double p_old = 0.99 * p_hll;	 
-	double p_new = 1.01 * p_hll; 
+	double p_old = 0.99 * p_hll;
+	double p_new = 1.01 * p_hll;
 
 	double f_of_p_old = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_old);
 
-	std::cout << std::abs(p_old-p_new) << " , " << p_old << " , " << p_new << "\n";
+	std::cout << std::abs(p_old - p_new) << " , " << p_old << " , " << p_new << "\n";
 	// This is a simple convergence criterion, we will replace this with the actual convergence criterion later on
 	while (std::abs(p_old - p_new) > 1e-6)
 	{
@@ -664,5 +684,14 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 		final_flux = F_right; // flux_chooser = F_right
 	}
 
-	return final_flux;
+	// This checks whether the conditions matched or not 
+	bool HLLD_conditioned_matched = HLLD_conditions(p_found, P_left.w, P_right.w, lamda_left, lamda_right, v_c_left[0], v_c_left[0], lamda_a_left, lamda_a_right)
+
+	if (HLLD_conditioned_matched) {
+		return final_flux;
+	} else {
+		// Not implemented since I need the full code
+		// But it would here revert to the HLL solver instead
+		return final_flux;
+	}
 }
