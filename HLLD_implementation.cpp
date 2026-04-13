@@ -231,7 +231,7 @@ std::vector<double> quartic_calculator(double a, double b, double c, double d, d
 	return real_roots;
 }
 
-// I used AI to put the quartic equation in the standard format. I will verify this later.
+// The quartic polynomial for the lamdas in the HLLC paper (Mignone) is put into standard form and then solved
 std::vector<double> find_quartic_roots(conserved_variables P, double p_g, double rho)
 {
 	double w_g = rho + p_g * (GAMMA_EOS / (GAMMA_EOS - 1));
