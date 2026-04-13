@@ -306,8 +306,8 @@ std::vector<double> calculate_v(std::vector<double> R, conserved_variables P, do
 	double A{R[1] - lamda * R[4] + p_guess * (1 - lamda * lamda)};
 	double G{R[6] * R[6] + R[7] * R[7]};
 	double C{R[2] * R[6] + R[3] * R[7]};
-	double Q = {-A - G + P.B_x * P.B_x * (1 - lamda * lamda)};
-	double X = {P.B_x * (A * lamda * P.B_x + C) - (A + G) * (lamda * p_guess + R[4])};
+	double Q{-A - G + P.B_x * P.B_x * (1 - lamda * lamda)};
+	double X{P.B_x * (A * lamda * P.B_x + C) - (A + G) * (lamda * p_guess + R[4])};
 
 	// Making sure we do not get any 0 division errors
 	X = prevent_zero_division(X);
@@ -388,12 +388,6 @@ double calculate_p_hll(std::vector<double> F_left, std::vector<double> F_right, 
 	denominator = prevent_zero_division(denominator);
 
 	double p_hll = numerator / denominator;
-	double B_x_squared = U_left[5] * U_left[5];
-	B_x_squared = prevent_zero_division(B_x_squared);
-
-	if (p_hll / B_x_squared < 0.1) {
-		
-	}
 	return p_hll;
 }
 
@@ -511,21 +505,47 @@ std::vector<double> calculate_U_intermediate_region(double D_c, double E_c, std:
 	return U_c;
 }
 
-
 // Conditions from the mignone HLLD paper, if they match we can use
 // the solution from the HLLD solver, else not.
 bool HLLD_conditions(double p, double w_L, double w_R, double v_x_aL, double v_x_aR,
 					 double lamda_L, double lamda_R, double v_x_cL, double v_x_cR, double lamda_a_L, double lamda_a_R)
 {
-	if (w_L < p || w_R < p) {
+	if (w_L < p || w_R < p)
+	{
+		std::cout << "The HLLD conditions didnt match (w_L < p || w_R < p) \n";
 		return false;
-	} else if (v_x_aL < lamda_L || v_x_aR > lamda_R) {
+	}
+	else if (v_x_aL < lamda_L || v_x_aR > lamda_R)
+	{
+		std::cout << "The HLLD conditions didnt match (v_x_aL < lamda_L || v_x_aR > lamda_R) \n";
 		return false;
-	} else if (v_x_cL < lamda_a_L || v_x_cR > lamda_a_R) {
+	}
+	else if (v_x_cL < lamda_a_L || v_x_cR > lamda_a_R)
+	{
+		std::cout << "The HLLD conditions didnt match (v_x_cL < lamda_a_L || v_x_cR > lamda_a_R) \n";
 		return false;
 	}
 
 	return true; // conditions all matched
+}
+
+std::vector<double> calculate_HLL_flux(double lamda_right, double lamda_left, std::vector<double> F_left, std::vector<double> F_right,
+									   std::vector<double> U_left, std::vector<double> U_right)
+{
+	std::cout << "Falling back to HLL flux...\n";
+	std::vector<double> hll_flux(8);
+
+	double denominator = lamda_right - lamda_left;
+	denominator = prevent_zero_division(denominator);
+
+	for (int i = 0; i < 8; i++)
+	{
+		hll_flux[i] = (lamda_right * F_left[i] - lamda_left * F_right[i] +
+					   lamda_left * lamda_right * (U_right[i] - U_left[i])) /
+					  denominator;
+	}
+
+	return hll_flux;
 }
 
 std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> v_right, std::vector<double> B_left, std::vector<double> B_right,
@@ -544,15 +564,46 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 
 	// Here we calculate the wave speeds and the intermediate states
 	std::vector<double> lamdas = calculate_lamdas(P_left, P_right, p_g_left, p_g_right, rho_left, rho_right);
-	double lamda_left = lamdas[0];
-	double lamda_right = lamdas[1];
+	double lamda_left{lamdas[0]};
+	double lamda_right{lamdas[1]};
 
 	std::vector<double> R_left = calculate_R(U_left, F_left, lamda_left);
 	std::vector<double> R_right = calculate_R(U_right, F_right, lamda_right);
 
 	double p_hll = calculate_p_hll(F_left, F_right, U_left, U_right, lamda_left, lamda_right);
-	double p_old = 0.99 * p_hll;
-	double p_new = 1.01 * p_hll;
+	double B_x_squared{U_left[5] * U_left[5]};
+	double p_used;
+
+	// Mignone tells us to fall back to p_0 for weak magnetic fields proportionally to p_hll
+	if ((B_x_squared / prevent_zero_division(p_hll)) < 0.1)
+	{
+		double denominator = lamda_right - lamda_left;
+        denominator = prevent_zero_division(denominator);
+
+        // Here we the HLL states
+        double E_hll = (lamda_right * U_right[4] - lamda_left * U_left[4] + F_left[4] - F_right[4]) / denominator;
+        double m_x_hll = (lamda_right * U_right[1] - lamda_left * U_left[1] + F_left[1] - F_right[1]) / denominator;
+
+        double F_E_hll = (lamda_right * F_left[4] - lamda_left * F_right[4] + lamda_left * lamda_right * (U_right[4] - U_left[4])) / denominator;
+        double F_mx_hll = (lamda_right * F_left[1] - lamda_left * F_right[1] + lamda_left * lamda_right * (U_right[1] - U_left[1])) / denominator;
+
+        double A = 1.0;
+        double B = E_hll - F_mx_hll;
+        double C = m_x_hll * F_E_hll - F_mx_hll * E_hll;
+
+        // ABC formula
+        double discriminant = std::max(0.0, B * B - 4.0 * A * C);
+        double p_0 = (-B + std::sqrt(discriminant)) / (2.0 * A); // Only plus root because you do not want negative pressure
+
+		p_used = std::max(EPSILON, p_0); // clamping pressure, because you want the simulation to spit out actual values
+	}
+	else
+	{
+		p_used = std::max(EPSILON, p_hll); // clamping pressure, because you want the simulation to spit out actual values
+	}
+
+	double p_old = 0.99 * p_used;
+	double p_new = 1.01 * p_used;
 
 	double f_of_p_old = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_old);
 
@@ -571,7 +622,7 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 		f_of_p_old = f_of_p_new;
 
 		p_new = p_next;
-		std::cout << "Iteration: " << p_new << " f(p): " << f_of_p_new << std::endl;
+		// std::cout << "Iteration: " << p_new << " f(p): " << f_of_p_new << std::endl;
 	}
 
 	double p_found = p_new; // This is the value of p that we found after convergence
@@ -684,14 +735,17 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 		final_flux = F_right; // flux_chooser = F_right
 	}
 
-	// This checks whether the conditions matched or not 
-	bool HLLD_conditioned_matched = HLLD_conditions(p_found, P_left.w, P_right.w, lamda_left, lamda_right, v_c_left[0], v_c_left[0], lamda_a_left, lamda_a_right)
+	// This checks whether the conditions matched or not
+	bool HLLD_conditioned_matched = HLLD_conditions(p_found, P_left.w, P_right.w, v_a_left[0], v_a_right[0],
+													lamda_left, lamda_right, v_c_left[0], v_c_left[0], lamda_a_left, lamda_a_right);
 
-	if (HLLD_conditioned_matched) {
+	if (HLLD_conditioned_matched)
+	{
 		return final_flux;
-	} else {
-		// Not implemented since I need the full code
-		// But it would here revert to the HLL solver instead
-		return final_flux;
+	}
+	else
+	{
+		std::vector<double> hll_flux = calculate_HLL_flux(lamda_right, lamda_left, F_left, F_right, U_left, U_right);
+		return hll_flux;
 	}
 }
