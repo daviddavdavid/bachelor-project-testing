@@ -380,7 +380,6 @@ std::vector<double> calculate_B_c(std::vector<double> v_left, std::vector<double
 	return B_c;
 }
 
-// PLACEHOLDER CODE FOR CALCULATING p_hll, we will replace this with the actual calculation later on
 double calculate_p_hll(std::vector<double> F_left, std::vector<double> F_right, std::vector<double> U_left, std::vector<double> U_right, double lamda_L, double lamda_R)
 {
 	double numerator = lamda_R * F_left[1] - lamda_L * F_right[1] + lamda_L * lamda_R * (U_right[1] - U_left[1]);
@@ -633,7 +632,6 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 
 	std::vector<double> B_a_left = calculate_B(R_left, P_left, v_a_left, lamda_left);
 	std::vector<double> B_a_right = calculate_B(R_right, P_right, v_a_right, lamda_right);
-
 	double w_a_left = calculate_w(R_left, P_left, v_a_left, lamda_left, p_found);
 	double w_a_right = calculate_w(R_right, P_right, v_a_right, lamda_right, p_found);
 
@@ -738,7 +736,7 @@ std::vector<double> HLLD_solver(std::vector<double> v_left, std::vector<double> 
 	// This checks whether the conditions matched or not
 	bool HLLD_conditioned_matched = HLLD_conditions(p_found, P_left.w, P_right.w, v_a_left[0], v_a_right[0],
 													lamda_left, lamda_right, v_c_left[0], v_c_left[0], lamda_a_left, lamda_a_right);
-
+	// mignone tells us that if the conditions are too extreme, we should fall back to the HLL solver 
 	if (HLLD_conditioned_matched)
 	{
 		return final_flux;
