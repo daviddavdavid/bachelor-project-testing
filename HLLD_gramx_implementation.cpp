@@ -111,7 +111,7 @@ namespace GRHydroX
 	// calculation of additional values needed by flux_x() function
 	// Total flops = 119
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
-	vlow_blow(const prim_point &prim, const metric_point &metric, CCTK_REAL &ab0,
+	vlow_blow(const prim_point &P, const metric_point &metric, CCTK_REAL &ab0,
 			  CCTK_REAL &b2, CCTK_REAL &w, CCTK_REAL &bxlow, CCTK_REAL &bylow,
 			  CCTK_REAL &bzlow)
 	{
@@ -129,12 +129,12 @@ namespace GRHydroX
 		const CCTK_REAL gyy = metric.gyy;
 		const CCTK_REAL gyz = metric.gyz;
 		const CCTK_REAL gzz = metric.gzz;
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL Bvecx = prim.Bvecx;
-		const CCTK_REAL Bvecy = prim.Bvecy;
-		const CCTK_REAL Bvecz = prim.Bvecz;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL Bvecx = P.Bvecx;
+		const CCTK_REAL Bvecy = P.Bvecy;
+		const CCTK_REAL Bvecz = P.Bvecz;
 
 		const CCTK_REAL velxlow = gxx * velx + gxy * vely + gxz * velz;
 		const CCTK_REAL velylow = gxy * velx + gyy * vely + gyz * velz;
@@ -171,25 +171,25 @@ namespace GRHydroX
 	// flux calculation for left and right states (along x direction)
 	// Total flops = 108
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE cons_point
-	flux_x(const prim_point &prim, const cons_point &cons,
+	flux_x(const prim_point &P, const cons_point &U,
 		   const metric_point &metric)
 	{
 		CCTK_REAL ab0, b2, w, bsubx, bsuby, bsubz;
-		vlow_blow(prim, metric, ab0, b2, w, bsubx, bsuby, bsubz);
+		vlow_blow(P, metric, ab0, b2, w, bsubx, bsuby, bsubz);
 
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
 
-		const CCTK_REAL dens = cons.dens;
-		const CCTK_REAL sx = cons.sx;
-		const CCTK_REAL sy = cons.sy;
-		const CCTK_REAL sz = cons.sz;
-		const CCTK_REAL tau = cons.tau;
-		const CCTK_REAL Bconsx = cons.Bconsx;
-		const CCTK_REAL Bconsy = cons.Bconsy;
-		const CCTK_REAL Bconsz = cons.Bconsz;
+		const CCTK_REAL dens = U.dens;
+		const CCTK_REAL sx = U.sx;
+		const CCTK_REAL sy = U.sy;
+		const CCTK_REAL sz = U.sz;
+		const CCTK_REAL tau = U.tau;
+		const CCTK_REAL Bconsx = U.Bconsx;
+		const CCTK_REAL Bconsy = U.Bconsy;
+		const CCTK_REAL Bconsz = U.Bconsz;
 
 		const CCTK_REAL betax = metric.betax;
 		const CCTK_REAL betay = metric.betay;
@@ -205,24 +205,24 @@ namespace GRHydroX
 		const CCTK_REAL sqrtdetpressstar =
 			sdet * pressstar; // sdet comes from metric //flops = 36
 
-		cons_point flux;
-		flux.dens = dens * velmbetainvalpx;
-		flux.sx = sx * velmbetainvalpx + sqrtdetpressstar - bsubx * Bconsx / w;
-		flux.sy =
+		cons_point F; // flux
+		F.dens = dens * velmbetainvalpx;
+		F.sx = sx * velmbetainvalpx + sqrtdetpressstar - bsubx * Bconsx / w;
+		F.sy =
 			sy * velmbetainvalpx - bsuby * Bconsx / w;		 // calculate w inside function
-		flux.sz = sz * velmbetainvalpx - bsubz * Bconsx / w; // TODO: bsub ~ Bvec_low
-		flux.tau = tau * velmbetainvalpx + sqrtdetpressstar * velx - ab0 * Bconsx / w;
-		flux.Bconsx = 0.0;
-		flux.Bconsy =
+		F.sz = sz * velmbetainvalpx - bsubz * Bconsx / w; // TODO: bsub ~ Bvec_low
+		F.tau = tau * velmbetainvalpx + sqrtdetpressstar * velx - ab0 * Bconsx / w;
+		F.Bconsx = 0.0;
+		F.Bconsy =
 			Bconsy * velmbetainvalpx - Bconsx * velmbetainvalpy; // By=Bconsy
-		flux.Bconsz =
+		F.Bconsz =
 			Bconsz * velmbetainvalpx - Bconsx * velmbetainvalpz; // flops = 62
-		return flux;
+		return F;
 	}
 
 	// Calculate the eigenvalues along X-direction
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
-	eigenvalues_x(const prim_point &prim, const metric_point &metric, CCTK_REAL cs2,
+	eigenvalues_x(const prim_point &P, const metric_point &metric, CCTK_REAL cs2,
 				  CCTK_REAL *const restrict lam)
 	{
 
@@ -233,15 +233,15 @@ namespace GRHydroX
 		const CCTK_REAL gyy = metric.gyy;
 		const CCTK_REAL gyz = metric.gyz;
 		const CCTK_REAL gzz = metric.gzz;
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
-		const CCTK_REAL rho = prim.rho;
-		const CCTK_REAL eps = prim.eps;
-		const CCTK_REAL Bvecx = prim.Bvecx;
-		const CCTK_REAL Bvecy = prim.Bvecy;
-		const CCTK_REAL Bvecz = prim.Bvecz;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
+		const CCTK_REAL rho = P.rho;
+		const CCTK_REAL eps = P.eps;
+		const CCTK_REAL Bvecx = P.Bvecx;
+		const CCTK_REAL Bvecy = P.Bvecy;
+		const CCTK_REAL Bvecz = P.Bvecz;
 		const CCTK_REAL betax = metric.betax;
 		const CCTK_REAL alp = metric.alp;
 		const CCTK_REAL detg = calculate_detg(metric);
@@ -296,25 +296,25 @@ namespace GRHydroX
 	***************************************************************************************************/
 	// flux calculation for left and right states (along y direction)
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE cons_point
-	flux_y(const prim_point &prim, const cons_point &cons,
+	flux_y(const prim_point &P, const cons_point &U,
 		   const metric_point &metric)
 	{
 		CCTK_REAL ab0, b2, w, bsubx, bsuby, bsubz;
-		vlow_blow(prim, metric, ab0, b2, w, bsubx, bsuby, bsubz);
+		vlow_blow(P, metric, ab0, b2, w, bsubx, bsuby, bsubz);
 
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
 
-		const CCTK_REAL dens = cons.dens;
-		const CCTK_REAL sx = cons.sx;
-		const CCTK_REAL sy = cons.sy;
-		const CCTK_REAL sz = cons.sz;
-		const CCTK_REAL tau = cons.tau;
-		const CCTK_REAL Bconsx = cons.Bconsx;
-		const CCTK_REAL Bconsy = cons.Bconsy;
-		const CCTK_REAL Bconsz = cons.Bconsz;
+		const CCTK_REAL dens = U.dens;
+		const CCTK_REAL sx = U.sx;
+		const CCTK_REAL sy = U.sy;
+		const CCTK_REAL sz = U.sz;
+		const CCTK_REAL tau = U.tau;
+		const CCTK_REAL Bconsx = U.Bconsx;
+		const CCTK_REAL Bconsy = U.Bconsy;
+		const CCTK_REAL Bconsz = U.Bconsz;
 
 		const CCTK_REAL betax = metric.betax;
 		const CCTK_REAL betay = metric.betay;
@@ -328,21 +328,21 @@ namespace GRHydroX
 		const CCTK_REAL pressstar = press + 0.5 * b2; // b2~Bvec^2
 		const CCTK_REAL sqrtdetpressstar = sdet * pressstar;
 
-		cons_point flux;
-		flux.dens = dens * velmbetainvalpy;
-		flux.sx = sx * velmbetainvalpy - bsubx * Bconsy / w;
-		flux.sy = sy * velmbetainvalpy + sqrtdetpressstar - bsuby * Bconsy / w;
-		flux.sz = sz * velmbetainvalpy - bsubz * Bconsy / w; // bsub ~ Bvec_low
-		flux.tau = tau * velmbetainvalpy + sqrtdetpressstar * vely - ab0 * Bconsy / w;
-		flux.Bconsx = Bconsx * velmbetainvalpy - Bconsy * velmbetainvalpx;
-		flux.Bconsy = 0.0;
-		flux.Bconsz = Bconsz * velmbetainvalpy - Bconsy * velmbetainvalpz;
-		return flux;
+		cons_point F; // flux
+		F.dens = dens * velmbetainvalpy;
+		F.sx = sx * velmbetainvalpy - bsubx * Bconsy / w;
+		F.sy = sy * velmbetainvalpy + sqrtdetpressstar - bsuby * Bconsy / w;
+		F.sz = sz * velmbetainvalpy - bsubz * Bconsy / w; // bsub ~ Bvec_low
+		F.tau = tau * velmbetainvalpy + sqrtdetpressstar * vely - ab0 * Bconsy / w;
+		F.Bconsx = Bconsx * velmbetainvalpy - Bconsy * velmbetainvalpx;
+		F.Bconsy = 0.0;
+		F.Bconsz = Bconsz * velmbetainvalpy - Bconsy * velmbetainvalpz;
+		return F;
 	}
 
 	// Calculate the eigenvalues along Y-direction
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
-	eigenvalues_y(const prim_point &prim, const metric_point &metric, CCTK_REAL cs2,
+	eigenvalues_y(const prim_point &P, const metric_point &metric, CCTK_REAL cs2,
 				  CCTK_REAL *const restrict lam)
 	{
 
@@ -353,15 +353,15 @@ namespace GRHydroX
 		const CCTK_REAL gyy = metric.gyy;
 		const CCTK_REAL gyz = metric.gyz;
 		const CCTK_REAL gzz = metric.gzz;
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
-		const CCTK_REAL rho = prim.rho;
-		const CCTK_REAL eps = prim.eps;
-		const CCTK_REAL Bvecx = prim.Bvecx;
-		const CCTK_REAL Bvecy = prim.Bvecy;
-		const CCTK_REAL Bvecz = prim.Bvecz;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
+		const CCTK_REAL rho = P.rho;
+		const CCTK_REAL eps = P.eps;
+		const CCTK_REAL Bvecx = P.Bvecx;
+		const CCTK_REAL Bvecy = P.Bvecy;
+		const CCTK_REAL Bvecz = P.Bvecz;
 		const CCTK_REAL betay = metric.betay;
 		const CCTK_REAL alp = metric.alp;
 		const CCTK_REAL detg = calculate_detg(metric);
@@ -416,25 +416,25 @@ namespace GRHydroX
 	***************************************************************************************************/
 	// flux calculation for left and right states (along z direction)
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE cons_point
-	flux_z(const prim_point &prim, const cons_point &cons,
+	flux_z(const prim_point &P, const cons_point &U,
 		   const metric_point &metric)
 	{
 		CCTK_REAL ab0, b2, w, bsubx, bsuby, bsubz;
-		vlow_blow(prim, metric, ab0, b2, w, bsubx, bsuby, bsubz);
+		vlow_blow(P, metric, ab0, b2, w, bsubx, bsuby, bsubz);
 
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
 
-		const CCTK_REAL dens = cons.dens;
-		const CCTK_REAL sx = cons.sx;
-		const CCTK_REAL sy = cons.sy;
-		const CCTK_REAL sz = cons.sz;
-		const CCTK_REAL tau = cons.tau;
-		const CCTK_REAL Bconsx = cons.Bconsx;
-		const CCTK_REAL Bconsy = cons.Bconsy;
-		const CCTK_REAL Bconsz = cons.Bconsz;
+		const CCTK_REAL dens = U.dens;
+		const CCTK_REAL sx = U.sx;
+		const CCTK_REAL sy = U.sy;
+		const CCTK_REAL sz = U.sz;
+		const CCTK_REAL tau = U.tau;
+		const CCTK_REAL Bconsx = U.Bconsx;
+		const CCTK_REAL Bconsy = U.Bconsy;
+		const CCTK_REAL Bconsz = U.Bconsz;
 
 		const CCTK_REAL betax = metric.betax;
 		const CCTK_REAL betay = metric.betay;
@@ -448,21 +448,21 @@ namespace GRHydroX
 		const CCTK_REAL pressstar = press + 0.5 * b2; // b2~Bvec^2
 		const CCTK_REAL sqrtdetpressstar = sdet * pressstar;
 
-		cons_point flux;
-		flux.dens = dens * velmbetainvalpz;
-		flux.sx = sx * velmbetainvalpz - bsubx * Bconsz / w;
-		flux.sy = sy * velmbetainvalpz - bsuby * Bconsz / w;
-		flux.sz = sz * velmbetainvalpz + sqrtdetpressstar - bsubz * Bconsz / w; // bsub ~ Bvec_low
-		flux.tau = tau * velmbetainvalpz + sqrtdetpressstar * velz - ab0 * Bconsz / w;
-		flux.Bconsx = Bconsx * velmbetainvalpz - Bconsz * velmbetainvalpx;
-		flux.Bconsy = Bconsy * velmbetainvalpz - Bconsz * velmbetainvalpy;
-		flux.Bconsz = 0.0;
-		return flux;
+		cons_point F; // flux
+		F.dens = dens * velmbetainvalpz;
+		F.sx = sx * velmbetainvalpz - bsubx * Bconsz / w;
+		F.sy = sy * velmbetainvalpz - bsuby * Bconsz / w;
+		F.sz = sz * velmbetainvalpz + sqrtdetpressstar - bsubz * Bconsz / w; // bsub ~ Bvec_low
+		F.tau = tau * velmbetainvalpz + sqrtdetpressstar * velz - ab0 * Bconsz / w;
+		F.Bconsx = Bconsx * velmbetainvalpz - Bconsz * velmbetainvalpx;
+		F.Bconsy = Bconsy * velmbetainvalpz - Bconsz * velmbetainvalpy;
+		F.Bconsz = 0.0;
+		return F;
 	}
 
 	// Calculate the eigenvalues along Z-direction
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
-	eigenvalues_z(const prim_point &prim, const metric_point &metric, CCTK_REAL cs2,
+	eigenvalues_z(const prim_point &P, const metric_point &metric, CCTK_REAL cs2,
 				  CCTK_REAL *const restrict lam)
 	{
 
@@ -473,15 +473,15 @@ namespace GRHydroX
 		const CCTK_REAL gyy = metric.gyy;
 		const CCTK_REAL gyz = metric.gyz;
 		const CCTK_REAL gzz = metric.gzz;
-		const CCTK_REAL velx = prim.velx;
-		const CCTK_REAL vely = prim.vely;
-		const CCTK_REAL velz = prim.velz;
-		const CCTK_REAL press = prim.press;
-		const CCTK_REAL rho = prim.rho;
-		const CCTK_REAL eps = prim.eps;
-		const CCTK_REAL Bvecx = prim.Bvecx;
-		const CCTK_REAL Bvecy = prim.Bvecy;
-		const CCTK_REAL Bvecz = prim.Bvecz;
+		const CCTK_REAL velx = P.velx;
+		const CCTK_REAL vely = P.vely;
+		const CCTK_REAL velz = P.velz;
+		const CCTK_REAL press = P.press;
+		const CCTK_REAL rho = P.rho;
+		const CCTK_REAL eps = P.eps;
+		const CCTK_REAL Bvecx = P.Bvecx;
+		const CCTK_REAL Bvecy = P.Bvecy;
+		const CCTK_REAL Bvecz = P.Bvecz;
 		const CCTK_REAL betaz = metric.betaz;
 		const CCTK_REAL alp = metric.alp;
 		const CCTK_REAL detg = calculate_detg(metric);
@@ -584,10 +584,10 @@ namespace GRHydroX
 	}
 
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_REAL
-	calculate_p_hll(const cons_point &F_left, const cons_point &F_right,
-					const cons_point &U_left, const cons_point &U_right, const CCTK_REAL lamda_L, const CCTK_REAL lamda_R)
+	calculate_p_hll(const cons_point &F_L, const cons_point &F_R,
+					const cons_point &U_L, const cons_point &U_R, const CCTK_REAL lamda_L, const CCTK_REAL lamda_R)
 	{
-		CCTK_REAL numerator = lamda_R * F_left.sx - lamda_L * F_right.sx + lamda_L * lamda_R * (U_right.sx - U_left.sx);
+		CCTK_REAL numerator = lamda_R * F_L.sx - lamda_L * F_R.sx + lamda_L * lamda_R * (U_R.sx - U_L.sx);
 		CCTK_REAL denominator = lamda_R - lamda_L;
 		denominator = prevent_zero_division(denominator);
 
@@ -660,29 +660,29 @@ namespace GRHydroX
 	}
 
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
-	calculate_B_c(CCTK_REAL B_c[3], const CCTK_REAL v_left[3], const CCTK_REAL v_right[3], const CCTK_REAL B_left[3], const CCTK_REAL B_right[3],
-				  const CCTK_REAL K_a_left_x, const CCTK_REAL K_a_right_x, const CCTK_REAL P_left_B_x)
+	calculate_B_c(CCTK_REAL B_c[3], const CCTK_REAL v_L[3], const CCTK_REAL v_R[3], const CCTK_REAL B_L[3], const CCTK_REAL B_R[3],
+				  const CCTK_REAL K_L_x, const CCTK_REAL K_R_x, const CCTK_REAL P_L_B_x)
 	{
-		B_c[0] = P_left_B_x; // B_x is constant across the discontinuity
+		B_c[0] = P_L_B_x; // B_x is constant across the discontinuity
 
-		CCTK_REAL denominator = K_a_right_x - K_a_left_x;
+		CCTK_REAL denominator = K_R_x - K_L_x;
 		denominator = prevent_zero_division(denominator);
 
 		// B_c = (B_left * (lamda_R - v_left) + B_right * (v_right - lamda_L)) / (lamda_R - lamda_L)
 		for (int i = 1; i < 3; i++)
 		{
-			B_c[i] = ((B_right[i] * (K_a_right_x - v_right[0]) + B_right[0] * v_right[i]) - (B_left[i] * (K_a_left_x - v_left[0]) + B_left[0] * v_left[i])) / (denominator);
+			B_c[i] = ((B_R[i] * (K_R_x - v_R[0]) + B_R[0] * v_R[i]) - (B_L[i] * (K_L_x - v_L[0]) + B_L[0] * v_L[i])) / (denominator);
 		}
 	}
 
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_REAL
-	calculate_Y_R(const CCTK_REAL K_left[3], const CCTK_REAL K_right[3], const CCTK_REAL B_c[3], const CCTK_REAL eta)
+	calculate_Y_R(const CCTK_REAL K_L[3], const CCTK_REAL K_R[3], const CCTK_REAL B_c[3], const CCTK_REAL eta)
 	{
-		const CCTK_REAL top = 1 - (K_right[0] * K_right[0] + K_right[1] * K_right[1] + K_right[2] * K_right[2]);
+		const CCTK_REAL top = 1 - (K_R[0] * K_R[0] + K_R[1] * K_R[1] + K_R[2] * K_R[2]);
 
 		// for the actual value you need to divide by delta_K_x as well, but we dont do this here because we only use Y_L/Y_R to calculate f(p) (and there it cancels)
 		// And dividing it by this quantity will lead in numerical instability
-		CCTK_REAL denominator = eta * (K_right[0] * B_c[0] + K_right[1] * B_c[1] + K_right[2] * B_c[2]);
+		CCTK_REAL denominator = eta * (K_R[0] * B_c[0] + K_R[1] * B_c[1] + K_R[2] * B_c[2]);
 		denominator = prevent_zero_division(denominator);
 
 		const CCTK_REAL Y_R = top / denominator;
@@ -690,13 +690,13 @@ namespace GRHydroX
 	}
 
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_REAL
-	calculate_Y_L(const CCTK_REAL K_left[3], const CCTK_REAL K_right[3], const CCTK_REAL B_c[3], const CCTK_REAL eta)
+	calculate_Y_L(const CCTK_REAL K_L[3], const CCTK_REAL K_R[3], const CCTK_REAL B_c[3], const CCTK_REAL eta)
 	{
-		const CCTK_REAL top = 1 - (K_left[0] * K_left[0] + K_left[1] * K_left[1] + K_left[2] * K_left[2]);
+		const CCTK_REAL top = 1 - (K_L[0] * K_L[0] + K_L[1] * K_L[1] + K_L[2] * K_L[2]);
 
 		// for the actual value you need to divide by delta_K_x as well, but we dont do this here because we only use Y_L/Y_R to calculate f(p) (and there it cancels)
 		// And dividing it by this quantity will lead in numerical instability
-		CCTK_REAL denominator = eta - (K_left[0] * B_c[0] + K_left[1] * B_c[1] + K_left[2] * B_c[2]);
+		CCTK_REAL denominator = eta - (K_L[0] * B_c[0] + K_L[1] * B_c[1] + K_L[2] * B_c[2]);
 		denominator = prevent_zero_division(denominator);
 		const CCTK_REAL Y_L = top / denominator;
 		return Y_L;
@@ -704,42 +704,42 @@ namespace GRHydroX
 
 	// TODO: Add the metric to the solver
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE CCTK_REAL
-	calculate_f_of_p(const prim_point &P_left, const prim_point &P_right,
-					 const cons_point &R_left, const cons_point &R_right, CCTK_REAL lamda_left, CCTK_REAL lamda_right, CCTK_REAL p_guess)
+	calculate_f_of_p(const prim_point &P_L, const prim_point &P_R,
+					 const cons_point &R_L, const cons_point &R_R, CCTK_REAL lamda_L, CCTK_REAL lamda_R, CCTK_REAL p_guess)
 	{
 
-		CCTK_REAL v_left[3];
-		calculate_v(v_left, R_left, P_left, lamda_left, p_guess);
+		CCTK_REAL v_L[3];
+		calculate_v(v_L, R_L, P_L, lamda_L, p_guess);
 
-		CCTK_REAL v_right[3];
-		calculate_v(v_right, R_right, P_right, lamda_right, p_guess);
+		CCTK_REAL v_R[3];
+		calculate_v(v_R, R_R, P_R, lamda_R, p_guess);
 
-		CCTK_REAL B_left[3];
-		calculate_B(B_left, R_left, P_left, v_left, lamda_left);
-		CCTK_REAL B_right[3];
-		calculate_B(B_right, R_right, P_right, v_right, lamda_right);
+		CCTK_REAL B_L[3];
+		calculate_B(B_L, R_L, P_L, v_L, lamda_L);
+		CCTK_REAL B_R[3];
+		calculate_B(B_R, R_R, P_R, v_R, lamda_R);
 
-		const CCTK_REAL w_left = calculate_w(R_left, P_left, v_left, lamda_left, p_guess);
-		const CCTK_REAL w_right = calculate_w(R_right, P_right, v_right, lamda_right, p_guess);
+		const CCTK_REAL w_L = calculate_w(R_L, P_L, v_L, lamda_L, p_guess);
+		const CCTK_REAL w_R = calculate_w(R_R, P_R, v_R, lamda_R, p_guess);
 
 		// step 3: Calculate K and the B_c field in the intermediate state
-		const CCTK_REAL eta_left = calculate_eta(P_left, w_left, -1.0);	  // eta is -1 for the left state
-		const CCTK_REAL eta_right = calculate_eta(P_right, w_right, 1.0); // eta is 1 for the right state
+		const CCTK_REAL eta_L = calculate_eta(P_L, w_L, -1.0);	  // eta is -1 for the left state
+		const CCTK_REAL eta_R = calculate_eta(P_R, w_R, 1.0); // eta is 1 for the right state
 
-		CCTK_REAL K_left[3];
-		calculate_K(R_left, B_left, lamda_left, p_guess, eta_left, K_left);
-		CCTK_REAL K_right[3];
-		calculate_K(R_right, B_right, lamda_right, p_guess, eta_right, K_right);
+		CCTK_REAL K_L[3];
+		calculate_K(R_L, B_L, lamda_L, p_guess, eta_L, K_L);
+		CCTK_REAL K_R[3];
+		calculate_K(R_R, B_R, lamda_R, p_guess, eta_R, K_R);
 
 		CCTK_REAL B_c[3];
-		calculate_B_c(B_c, v_left, v_right, B_left, B_right, K_left[0], K_right[0], P_left.Bvecx);
+		calculate_B_c(B_c, v_L, v_R, B_L, B_R, K_L[0], K_R[0], P_L.Bvecx);
 
-		const CCTK_REAL Y_left = calculate_Y_L(K_left, K_right, B_c, eta_left);	  // eta is -1 for the left state
-		const CCTK_REAL Y_right = calculate_Y_R(K_left, K_right, B_c, eta_right); // eta is 1 for the right state
+		const CCTK_REAL Y_L = calculate_Y_L(K_L, K_R, B_c, eta_L);	  // eta is -1 for the left state
+		const CCTK_REAL Y_R = calculate_Y_R(K_L, K_R, B_c, eta_R); // eta is 1 for the right state
 
-		const CCTK_REAL delta_K_x = K_right[0] - K_left[0];
-		const CCTK_REAL B_x = P_left.Bvecx;								 // B_x is constant across the discontinuity
-		const CCTK_REAL f_of_p = (delta_K_x - B_x * (Y_right - Y_left)); // As mentioned in Y_L/Y_R, we dont do the delta_K_x since it gets divided out
+		const CCTK_REAL delta_K_x = K_R[0] - K_L[0];
+		const CCTK_REAL B_x = P_L.Bvecx;								 // B_x is constant across the discontinuity
+		const CCTK_REAL f_of_p = (delta_K_x - B_x * (Y_R - Y_L)); // As mentioned in Y_L/Y_R, we dont do the delta_K_x since it gets divided out
 		return f_of_p;
 	}
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE void
@@ -759,8 +759,8 @@ namespace GRHydroX
 	// Conditions from the mignone HLLD paper, if they match we can use
 	// the solution from the HLLD solver, else not.
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE bool
-	HLLD_conditions(double p, double w_L, double w_R, double v_x_aL, double v_x_aR,
-					double lamda_L, double lamda_R, double v_x_cL, double v_x_cR, double lamda_a_L, double lamda_a_R)
+	HLLD_conditions(const CCTK_REAL p, const CCTK_REAL w_L, const CCTK_REAL w_R, const CCTK_REAL v_x_aL, const CCTK_REAL v_x_aR,
+					const CCTK_REAL lamda_L, const CCTK_REAL lamda_R, const CCTK_REAL v_x_cL, const CCTK_REAL v_x_cR, const CCTK_REAL lamda_a_L, const CCTK_REAL lamda_a_R)
 	{
 		if (w_L < p || w_R < p)
 		{
@@ -779,22 +779,22 @@ namespace GRHydroX
 	}
 
 	static inline CCTK_ATTRIBUTE_ALWAYS_INLINE CCTK_DEVICE cons_point
-	calculate_HLL_flux(const CCTK_REAL lamda_right, const CCTK_REAL lamda_left, const cons_point F_left, const cons_point F_right,
-					   const cons_point U_left, const cons_point U_right, cons_point &hll_flux)
+	calculate_HLL_flux(const CCTK_REAL lamda_R, const CCTK_REAL lamda_L, const cons_point F_L, const cons_point F_R,
+					   const cons_point U_L, const cons_point U_R, cons_point &hll_flux)
 	{
-		CCTK_REAL denominator = lamda_right - lamda_left;
+		CCTK_REAL denominator = lamda_R - lamda_L;
 		denominator = prevent_zero_division(denominator);
 
 		cons_point hll_flux;
 
-		hll_flux.dens = (lamda_right * F_left.dens - lamda_left * F_right.dens + lamda_left * lamda_right * (U_right.dens - U_left.dens)) / denominator;
-		hll_flux.sx = (lamda_right * F_left.sx - lamda_left * F_right.sx + lamda_left * lamda_right * (U_right.sx - U_left.sx)) / denominator;
-		hll_flux.sy = (lamda_right * F_left.sy - lamda_left * F_right.sy + lamda_left * lamda_right * (U_right.sy - U_left.sy)) / denominator;
-		hll_flux.sz = (lamda_right * F_left.sz - lamda_left * F_right.sz + lamda_left * lamda_right * (U_right.sz - U_left.sz)) / denominator;
-		hll_flux.tau = (lamda_right * F_left.tau - lamda_left * F_right.tau + lamda_left * lamda_right * (U_right.tau - U_left.tau)) / denominator;
-		hll_flux.Bconsx = (lamda_right * F_left.Bconsx - lamda_left * F_right.Bconsx + lamda_left * lamda_right * (U_right.Bconsx - U_left.Bconsx)) / denominator;
-		hll_flux.Bconsy = (lamda_right * F_left.Bconsy - lamda_left * F_right.Bconsy + lamda_left * lamda_right * (U_right.Bconsy - U_left.Bconsy)) / denominator;
-		hll_flux.Bconsz = (lamda_right * F_left.Bconsz - lamda_left * F_right.Bconsz + lamda_left * lamda_right * (U_right.Bconsz - U_left.Bconsz)) / denominator;
+		hll_flux.dens = (lamda_R * F_L.dens - lamda_L * F_R.dens + lamda_L * lamda_R * (U_R.dens - U_L.dens)) / denominator;
+		hll_flux.sx = (lamda_R * F_L.sx - lamda_L * F_R.sx + lamda_L * lamda_R * (U_R.sx - U_L.sx)) / denominator;
+		hll_flux.sy = (lamda_R * F_L.sy - lamda_L * F_R.sy + lamda_L * lamda_R * (U_R.sy - U_L.sy)) / denominator;
+		hll_flux.sz = (lamda_R * F_L.sz - lamda_L * F_R.sz + lamda_L * lamda_R * (U_R.sz - U_L.sz)) / denominator;
+		hll_flux.tau = (lamda_R * F_L.tau - lamda_L * F_R.tau + lamda_L * lamda_R * (U_R.tau - U_L.tau)) / denominator;
+		hll_flux.Bconsx = (lamda_R * F_L.Bconsx - lamda_L * F_R.Bconsx + lamda_L * lamda_R * (U_R.Bconsx - U_L.Bconsx)) / denominator;
+		hll_flux.Bconsy = (lamda_R * F_L.Bconsy - lamda_L * F_R.Bconsy + lamda_L * lamda_R * (U_R.Bconsy - U_L.Bconsy)) / denominator;
+		hll_flux.Bconsz = (lamda_R * F_L.Bconsz - lamda_L * F_R.Bconsz + lamda_L * lamda_R * (U_R.Bconsz - U_L.Bconsz)) / denominator;
 
 		return hll_flux;
 	}
@@ -813,13 +813,13 @@ namespace GRHydroX
 
 		const CCTK_REAL min_value = 1e-10; // Small value to prevent division by zero and negative pressures
 		CCTK_REAL lambda_leftright[10];
-		CCTK_REAL *const lambda_left = lambda_leftright;
-		CCTK_REAL *const lambda_right = lambda_leftright + 5;
+		CCTK_REAL *const lambda_temp_L = lambda_leftright;
+		CCTK_REAL *const lambda_temp_R = lambda_leftright + 5;
 
 		cons_point F_L;
 		cons_point F_R;
 
-		calculate_fluxes(P_L, P_R, U_L, U_R, metric, c_s_squared_L, c_s_squared_R, lambda_left, lambda_right, F_L, F_R, flux_direction);
+		calculate_fluxes(P_L, P_R, U_L, U_R, metric, c_s_squared_L, c_s_squared_R, lambda_temp_L, lambda_temp_R, F_L, F_R, flux_direction);
 
 		// This finds the lamda_R and lamda_L wavespeeds
 		const CCTK_REAL lamda_R = max10_0(lambda_leftright);
@@ -837,15 +837,15 @@ namespace GRHydroX
 		// This code essentially calculates the initial guess for the secant solver
 		if ((B_x_squared / prevent_zero_division(p_hll)) < 0.1)
 		{
-			CCTK_REAL denominator = lamda_right - lamda_left;
+			CCTK_REAL denominator = lamda_R - lamda_L;
 			denominator = prevent_zero_division(denominator);
 
 			// Here we the HLL states
-			const CCTK_REAL E_hll = (lamda_right * U_R.tau - lamda_left * U_L.tau + F_L.tau - F_R.tau) / denominator;
-			const CCTK_REAL m_x_hll = (lamda_right * U_R.sx - lamda_left * U_L.sx + F_L.sx - F_R.sx) / denominator;
+			const CCTK_REAL E_hll = (lamda_R * U_R.tau - lamda_L * U_L.tau + F_L.tau - F_R.tau) / denominator;
+			const CCTK_REAL m_x_hll = (lamda_R * U_R.sx - lamda_L * U_L.sx + F_L.sx - F_R.sx) / denominator;
 
-			const CCTK_REAL F_E_hll = (lamda_right * F_L.tau - lamda_left * F_R.tau + lamda_left * lamda_right * (U_L.tau - U_R.tau)) / denominator;
-			const CCTK_REAL F_mx_hll = (lamda_right * F_L.sx - lamda_left * F_R.sx + lamda_left * lamda_right * (U_L.sx - U_R.sx)) / denominator;
+			const CCTK_REAL F_E_hll = (lamda_R * F_L.tau - lamda_L * F_R.tau + lamda_L * lamda_R * (U_L.tau - U_R.tau)) / denominator;
+			const CCTK_REAL F_mx_hll = (lamda_R * F_L.sx - lamda_L * F_R.sx + lamda_L * lamda_R * (U_L.sx - U_R.sx)) / denominator;
 
 			const CCTK_REAL A = 1.0;
 			const CCTK_REAL B = E_hll - F_mx_hll;
@@ -875,7 +875,7 @@ namespace GRHydroX
 		while (std::abs(p_old - p_new) > 1e-6)
 		{
 			// Here we use the secant method with f(p) and update p till our convergence criterion meets
-			const CCTK_REAL f_of_p_new = calculate_f_of_p(P_left, P_right, R_left, R_right, lamda_left, lamda_right, p_new);
+			const CCTK_REAL f_of_p_new = calculate_f_of_p(P_L, P_R, R_L, R_R, lamda_L, lamda_R, p_new);
 
 			CCTK_REAL denominator = f_of_p_new - f_of_p_old;
 			denominator = prevent_zero_division(denominator);
@@ -889,7 +889,6 @@ namespace GRHydroX
 
 		CCTK_REAL v_a_L[3];
 		calculate_v(v_a_L, R_L, P_L, lamda_L, p_guess);
-
 		CCTK_REAL v_a_R[3];
 		calculate_v(v_a_R, R_R, P_R, lamda_R, p_guess);
 
@@ -965,11 +964,11 @@ namespace GRHydroX
 			const cons_point U_c_L = calculate_U_intermediate_region(D_c_L, E_c_L, B_c, m_c_L);
 			final_flux = calculate_flux_intermediate_region(U_a_L, U_c_L, F_a_L, lamda_c);
 		}
-		else if (lamda_c < 0 && lamda_a_right > 0)
+		else if (lamda_c < 0 && lamda_a_R > 0)
 		{
-			CCTK_REAL denominator = lamda_right - v_a_R[0];
+			CCTK_REAL denominator = lamda_R - v_a_R[0];
 			denominator = prevent_zero_division(denominator);
-			const CCTK_REAL D_a_R = R_right[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
+			const CCTK_REAL D_a_R = R_R[0] / (denominator); // D = R_D / (lamda - v_x), where R_D is the first component of R
 
 			const prim_point P_a_R = calculate_final_P(D_a_R, v_a_R, B_a_R, w_a_R, p_found);
 			const cons_point U_a_R = calculate_U(P_a_R); // U_right
@@ -992,21 +991,21 @@ namespace GRHydroX
 			const cons_point U_c_R = calculate_U_intermediate_region(D_c_R, E_c_R, B_c, m_c_R);
 			final_flux = calculate_flux_intermediate_region(U_a_R, U_c_R, F_a_R, lamda_c);
 		}
-		else if (lamda_a_right < 0 && lamda_right > 0)
+		else if (lamda_a_R < 0 && lamda_R > 0)
 		{
 			const CCTK_REAL D_a_R = R_right[0] / (lamda_R - v_a_R[0]); // D = R_D / (lamda - v_x), where R_D is the first component of R
 			const prim_point P_a_R = calculate_final_P(D_a_R, v_a_R, B_a_R, w_a_R, p_found);
 			const cons_point F_a_R = calculate_F(P_a_R); // F_right
 			final_flux = F_a_R;								 // flux_chooser = F_a_R
 		}
-		else if (lamda_right < 0)
+		else if (lamda_R < 0)
 		{
-			final_flux = F_right; // flux_chooser = F_right
+			final_flux = F_R; // flux_chooser = F_right
 		}
 
 		// This checks whether the conditions matched or not
-		bool HLLD_conditioned_matched = HLLD_conditions(p_found, P_left.w, P_right.w, v_a_left[0], v_a_R[0],
-														lamda_left, lamda_right, v_c[0], v_c[0], lamda_a_L, lamda_a_R);
+		bool HLLD_conditioned_matched = HLLD_conditions(p_found, w_a_L, w_a_R, v_a_left[0], v_a_R[0],
+														lamda_L, lamda_R, v_c[0], v_c[0], lamda_a_L, lamda_a_R);
 		// mignone tells us that if the conditions are too extreme, we should fall back to the HLL solver
 		if (HLLD_conditioned_matched)
 		{
@@ -1021,4 +1020,4 @@ namespace GRHydroX
 
 } // namespace GRHydroX
 
-#endif // #ifndef GRHYDROX_HLLE_HXX
+#endif // #ifndef GRHYDROX_HLLD_HXX
